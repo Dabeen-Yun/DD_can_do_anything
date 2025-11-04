@@ -736,10 +736,12 @@ class Simulation:
             gsfc.noname_dropped = True
             return []
 
+        is_first_idx = False
         if gsfc.noname_satellite_path == []:
             prev_sat = -1
+            is_first_idx = True
         else:
-            prev_sat = gsfc.noname_satellite_path[-1]
+            prev_sat = gsfc.noname_satellite_path[-1][0]
 
         cur_vsg_path_id = gsfc.noname_cur_vsg_path_id
         next_vsg_path_id = gsfc.noname_cur_vsg_path_id + 1
@@ -787,25 +789,25 @@ class Simulation:
         dst_sat = random.choice(candidate_dst_sats)
 
         if prev_sat == dst_sat: # 이동 X
-            if gsfc.noname_cur_sat_id == -1:
+            if is_first_idx:
                 gsfc.noname_satellite_path.append([prev_sat, src_vnf])
             gsfc.noname_satellite_path.append([dst_sat, dst_vnf])
-            gsfc.noname_cur_sat_id = dst_sat
         else:
             try:
                 sub_path = nx.shortest_path(self.G, source=prev_sat, target=dst_sat)
 
-                if gsfc.noname_cur_sat_id == -1:
+                if is_first_idx:
                     gsfc.noname_satellite_path.append([prev_sat, src_vnf])
                 if len(sub_path) > 2:
                     for sid in sub_path[1:-1]:
                         gsfc.noname_satellite_path.append([sid, None])
                 gsfc.noname_satellite_path.append([dst_sat, dst_vnf])
-                gsfc.noname_cur_sat_id = dst_sat
             except nx.NetworkXNoPath:
                 print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
                 gsfc.noname_dropped = True
                 return []
+
+        gsfc.noname_cur_vsg_path_id += 1
 
     def set_satellite_path(self, gsfc):
         if gsfc.id not in self.vsg_path or not self.vsg_path[gsfc.id]:
