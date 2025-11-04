@@ -736,20 +736,10 @@ class Simulation:
             gsfc.noname_dropped = True
             return []
 
-        is_first_idx = False
         if gsfc.noname_satellite_path == []:
-            prev_sat = -1
-            is_first_idx = True
-        else:
-            prev_sat = gsfc.noname_satellite_path[-1][0]
+            cur_vsg_path_id = gsfc.noname_cur_vsg_path_id
+            src_vsg, src_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
 
-        cur_vsg_path_id = gsfc.noname_cur_vsg_path_id
-        next_vsg_path_id = gsfc.noname_cur_vsg_path_id + 1
-
-        src_vsg, src_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
-        dst_vsg, dst_vnf = self.vsg_path[gsfc.id][next_vsg_path_id]
-
-        if prev_sat == -1:
             is_vnf = self.has_vnf_tag(src_vnf)
             if is_vnf:
                 current_vnf_id = self.get_vnf_id_for_list(src_vnf)
@@ -761,51 +751,55 @@ class Simulation:
                 candidate_src_sats = [
                     sat.id for sat in self.vsgs_list[src_vsg].satellites
                 ]
+
             if not candidate_src_sats:
                 print(f"[ERROR] 3-1 No SATELLITE TO SRC")
                 gsfc.noname_dropped = True
                 return []
+
             # TODO. random choice?
             src_sat = random.choice(candidate_src_sats)
-            prev_sat = src_sat
+            gsfc.noname_satellite_path.append([src_sat, src_vnf])
 
-        is_vnf = self.has_vnf_tag(dst_vnf)
-        if is_vnf:
-            current_vnf_id = self.get_vnf_id_for_list(dst_vnf)
-            candidate_dst_sats = [
-                sat.id for sat in self.vsgs_list[dst_vsg].satellites
-                if current_vnf_id in sat.vnf_list
-            ]
         else:
-            candidate_dst_sats = [
-                sat.id for sat in self.vsgs_list[dst_vsg].satellites
-            ]
+            prev_sat = gsfc.noname_satellite_path[-1][0]
 
-        if not candidate_dst_sats:
-            print(f"[ERROR] 3-1 No SATELLITE TO DST")
-            gsfc.noname_dropped = True
-            return []
-        # TODO. random choice?
-        dst_sat = random.choice(candidate_dst_sats)
+            cur_vsg_path_id = gsfc.noname_cur_vsg_path_id
+            dst_vsg, dst_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
 
-        if prev_sat == dst_sat: # 이동 X
-            if is_first_idx:
-                gsfc.noname_satellite_path.append([prev_sat, src_vnf])
-            gsfc.noname_satellite_path.append([dst_sat, dst_vnf])
-        else:
-            try:
-                sub_path = nx.shortest_path(self.G, source=prev_sat, target=dst_sat)
+            is_vnf = self.has_vnf_tag(dst_vnf)
+            if is_vnf:
+                current_vnf_id = self.get_vnf_id_for_list(dst_vnf)
+                candidate_dst_sats = [
+                    sat.id for sat in self.vsgs_list[dst_vsg].satellites
+                    if current_vnf_id in sat.vnf_list
+                ]
+            else:
+                candidate_dst_sats = [
+                    sat.id for sat in self.vsgs_list[dst_vsg].satellites
+                ]
 
-                if is_first_idx:
-                    gsfc.noname_satellite_path.append([prev_sat, src_vnf])
-                if len(sub_path) > 2:
-                    for sid in sub_path[1:-1]:
-                        gsfc.noname_satellite_path.append([sid, None])
-                gsfc.noname_satellite_path.append([dst_sat, dst_vnf])
-            except nx.NetworkXNoPath:
-                print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
+            if not candidate_dst_sats:
+                print(f"[ERROR] 3-1 No SATELLITE TO DST")
                 gsfc.noname_dropped = True
                 return []
+            # TODO. random choice?
+            dst_sat = random.choice(candidate_dst_sats)
+
+            if prev_sat == dst_sat: # 이동 X
+                gsfc.noname_satellite_path.append([dst_sat, dst_vnf])
+            else:
+                try:
+                    sub_path = nx.shortest_path(self.G, source=prev_sat, target=dst_sat)
+
+                    if len(sub_path) > 2:
+                        for sid in sub_path[1:-1]:
+                            gsfc.noname_satellite_path.append([sid, None])
+                    gsfc.noname_satellite_path.append([dst_sat, dst_vnf])
+                except nx.NetworkXNoPath:
+                    print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
+                    gsfc.noname_dropped = True
+                    return []
 
         gsfc.noname_cur_vsg_path_id += 1
 
@@ -1657,6 +1651,16 @@ class Simulation:
             return 'vnf' in x.lower()
         return False
 
+    # 현재 위성에서 vnf 처리하는지 확인
+    def has_dst_tag(self, x):
+        if x is None:
+            return False
+        if isinstance(x, (list, tuple)):
+            return any(isinstance(e, str) and 'dst' in e.lower() for e in x)
+        if isinstance(x, str):
+            return 'dst' in x.lower()
+        return False
+
     def simulation_proceeding(self, mode='dd', data_processing_rate_pair=(10, 1000), proposed=True, results_dir=None):
         if proposed is None:
             IS_PROPOSED = True
@@ -1714,6 +1718,7 @@ class Simulation:
                     self.set_gsfc_flow_rule(gsfc)
                     self.set_vsg_path(gsfc)
                     self.set_satellite_path_noname(gsfc)
+                    print(f"[GSFC GENERATION] Time {t} Mode {mode}: GSFC {gsfc.id} 생성 완료. 경로 탐색 시작.")
 
                 elif mode == "dd":
                     if IS_PROPOSED:
@@ -1779,7 +1784,13 @@ class Simulation:
                 if gsfc.noname_succeed:
                     continue
                 else:
-                    self.set_satellite_path_noname(gsfc)
+                    remain_path = gsfc.get_remain_path(mode=mode)
+                    if len(remain_path) < 1:
+                        cur_sat_id = gsfc.noname_processed_satellite_path[-1][0]
+                        cur_sat = self.sat_list[cur_sat_id]
+
+                        self.set_satellite_path_noname(gsfc)
+                        cur_sat.add_to_transmit_queue(gsfc, mode=mode)
 
             ## processing 로직
             # processing queue가 있는 gserver 리스트 추출
@@ -1820,8 +1831,13 @@ class Simulation:
                         remain_path = gsfc.get_remain_path(mode=mode)
                         # TODO NEW! processed_satellite_path의 마지막에 'dst'가 있는지
                         if remain_path == []:
-                            setattr(gsfc, f"{mode}_succeed", True)
-                            continue
+                            satellite_path_attr = f"{mode}_satellite_path"
+                            satellite_path = getattr(gsfc, satellite_path_attr, [])
+
+                            was_dst = self.has_dst_tag(satellite_path[-1][1])
+                            if was_dst:
+                                setattr(gsfc, f"{mode}_succeed", True)
+                                # print(f"[PATH LOG] GSFC {gsfc.id} on Sat {self.id}: Destination reached. Success.")
 
                         sat_id = remain_path[0][0]
                         next_sat = self.sat_list[sat_id]
@@ -1840,6 +1856,7 @@ class Simulation:
 
                             next_sat.add_to_transmit_queue(gsfc, mode=mode)
 
+            # TODO. sat list에서 sat id가 오름차순이면 한번에 경로가 처리됨
             for sat in self.sat_list:
                 if any(q for q in sat.queue_ISL):
                     transmit_completed_gsfc_ids = sat.transmit_gsfcs(self.gsfc_list, mode=mode)
@@ -1852,8 +1869,13 @@ class Simulation:
                         remain_path = gsfc.get_remain_path(mode=mode)
                         # TODO NEW! processed_satellite_path의 마지막에 'dst'가 있는지
                         if remain_path == []:
-                            setattr(gsfc, f"{mode}_succeed", True)
-                            continue
+                            satellite_path_attr = f"{mode}_satellite_path"
+                            satellite_path = getattr(gsfc, satellite_path_attr, [])
+
+                            was_dst = self.has_dst_tag(satellite_path[-1][1])
+                            if was_dst:
+                                setattr(gsfc, f"{mode}_succeed", True)
+                                # print(f"[PATH LOG] GSFC {gsfc.id} on Sat {self.id}: Destination reached. Success.")
 
                         next_sat_id = remain_path[0][0]
                         next_sat = self.sat_list[next_sat_id]

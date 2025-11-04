@@ -13,7 +13,7 @@ class GSFC:
 
         # ~~ 구현 변수
         self.noname_cur_vsg_id = 0
-        self.noname_cur_vsg_path_id = 1
+        self.noname_cur_vsg_path_id = 0
         self.noname_satellite_path = []
         self.noname_succeed = False
         self.noname_dropped = False

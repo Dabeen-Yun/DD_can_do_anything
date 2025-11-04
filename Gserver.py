@@ -23,6 +23,16 @@ class Gserver:
     def assign_vnf(self, vnf_type):
         self.vnf_list.append(vnf_type)
 
+    # 현재 위성에서 vnf 처리하는지 확인
+    def has_dst_tag(self, x):
+        if x is None:
+            return False
+        if isinstance(x, (list, tuple)):
+            return any(isinstance(e, str) and 'dst' in e.lower() for e in x)
+        if isinstance(x, str):
+            return 'dst' in x.lower()
+        return False
+
     def calculate_TSL_propagation_delay(self, sat):
         sat_lat_rad = d2r(sat.lat)
         sat_lon_rad = d2r(sat.lon)
@@ -95,8 +105,13 @@ class Gserver:
             remain_sat_path = gsfc.get_remain_path(mode=mode)
             # TODO NEW! processed_satellite_path의 마지막에 'dst'가 있는지
             if len(remain_sat_path) < 1:
-                setattr(gsfc, f"{mode}_succeed", True)
-                # print(f"[PATH LOG] GSFC {gsfc.id} on Sat {self.id}: Destination reached. Success.")
+                satellite_path_attr = f"{mode}_satellite_path"
+                satellite_path = getattr(gsfc, satellite_path_attr, [])
+
+                was_dst = self.has_dst_tag(satellite_path[-1][1])
+                if was_dst:
+                    setattr(gsfc, f"{mode}_succeed", True)
+                    # print(f"[PATH LOG] GSFC {gsfc.id} on Sat {self.id}: Destination reached. Success.")
                 return
 
             next_sat_id = remain_sat_path[0][0]
