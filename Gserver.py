@@ -93,6 +93,7 @@ class Gserver:
             self.queue_TSL.pop(0)
 
             remain_sat_path = gsfc.get_remain_path(mode=mode)
+            # TODO NEW! processed_satellite_path의 마지막에 'dst'가 있는지
             if len(remain_sat_path) < 1:
                 setattr(gsfc, f"{mode}_succeed", True)
                 # print(f"[PATH LOG] GSFC {gsfc.id} on Sat {self.id}: Destination reached. Success.")

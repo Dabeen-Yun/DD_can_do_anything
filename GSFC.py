@@ -12,8 +12,7 @@ class GSFC:
         self.gserver = None
 
         # ~~ 구현 변수
-        self.noname_cur_sat_id = -1
-        self.noname_cur_vsg_id = -1
+        self.noname_cur_vsg_id = 0
         self.noname_cur_vsg_path_id = 0
         self.noname_satellite_path = []
         self.noname_succeed = False
