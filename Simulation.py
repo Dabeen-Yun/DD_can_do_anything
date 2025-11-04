@@ -566,15 +566,18 @@ class Simulation:
         for i in range(num_gsfcs):
             # 1. SFC 내 vnf 시퀀스 생성 (min 1 ~ max 2)
             # sfc_length = np.random.randint(VNF_PER_SFC[0], VNF_PER_SFC[1]+1)
-            sfc_length = 5
+            # sfc_length = 5
 
-            # 방법 1. VSG에 할당되어 있는 VNF 중에서 GSFC 설정
-            all_vnfs = sorted({vnf for sat in self.sat_list for vnf in sat.vnf_list if sat.vnf_list})
-            if not all_vnfs:
-                print(f"[WARNING] No VNFs found in current network.")
-                vnf_sequence = []
-            else:
-                vnf_sequence = random.choices(all_vnfs, k=sfc_length)
+            # # 방법 1. VSG에 할당되어 있는 VNF 중에서 GSFC 설정
+            # all_vnfs = sorted({vnf for sat in self.sat_list for vnf in sat.vnf_list if sat.vnf_list})
+            # if not all_vnfs:
+            #     print(f"[WARNING] No VNFs found in current network.")
+            #     vnf_sequence = []
+            # else:
+            #     vnf_sequence = random.choices(all_vnfs, k=sfc_length)
+
+            sfc_type_idx = random.randint(0, 2)
+            vnf_sequence = SFC_TYPE_LIST.get(sfc_type_idx)
 
             # 1. src_vsg를 무작위로 선택
             src_vsg = random.choice(self.vsgs_list)
