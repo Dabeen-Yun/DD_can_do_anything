@@ -736,10 +736,10 @@ class Simulation:
             gsfc.noname_dropped = True
             return []
 
-        if gsfc.noname_cur_sat_id == -1:
+        if gsfc.noname_satellite_path == []:
             prev_sat = -1
         else:
-            prev_sat = gsfc.noname_cur_sat_id
+            prev_sat = gsfc.noname_satellite_path[-1]
 
         cur_vsg_path_id = gsfc.noname_cur_vsg_path_id
         next_vsg_path_id = gsfc.noname_cur_vsg_path_id + 1
@@ -1811,6 +1811,7 @@ class Simulation:
                     for gsfc_id in transmit_completed_gsfc_ids:
                         gsfc = self.gsfc_list[gsfc_id]
                         remain_path = gsfc.get_remain_path(mode=mode)
+                        # TODO NEW! processed_satellite_path의 마지막에 'dst'가 있는지
                         if remain_path == []:
                             setattr(gsfc, f"{mode}_succeed", True)
                             continue
@@ -1842,7 +1843,7 @@ class Simulation:
                         # print(f"[TRANS COMPLETE] Sat {sat.id}: GSFC {gsfc.id} 전송 완료. Handover 시작.")
 
                         remain_path = gsfc.get_remain_path(mode=mode)
-
+                        # TODO NEW! processed_satellite_path의 마지막에 'dst'가 있는지
                         if remain_path == []:
                             setattr(gsfc, f"{mode}_succeed", True)
                             continue
