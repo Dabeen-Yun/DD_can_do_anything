@@ -11,14 +11,28 @@ class GSFC:
         self.vnf_sizes = [] #value: total vnf sizes [bit]
         self.gserver = None
 
+        # ~~ 구현 변수
+        self.noname_cur_sat_id = -1
+        self.noname_cur_vsg_id = -1
+        self.noname_cur_vsg_path_id = 0
+        self.noname_satellite_path = []
+        self.noname_succeed = False
+        self.noname_dropped = False
+        self.noname_processed_satellite_path = []
+        self.noname_is_transmitting = False
+        self.noname_hop_count = 0
+        self.noname_prop_delay_ms = 0
+        self.noname_proc_delay_ms = 0
+        self.noname_trans_delay_ms = 0
+        self.noname_queue_delay_ms = 0
+        self.noname_e2e_delay_ms = 0
+
         # VSG 논문 구현 변수
         self.basic_satellite_path = []
         self.basic_succeed = False
         self.basic_dropped = False
         self.basic_processed_satellite_path = []
         self.basic_is_transmitting = False
-        self.basic_succeed = False
-        self.basic_dropped = False
         self.basic_hop_count = 0
         self.basic_prop_delay_ms = 0
         self.basic_proc_delay_ms = 0

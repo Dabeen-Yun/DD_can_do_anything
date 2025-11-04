@@ -730,6 +730,83 @@ class Simulation:
         return False
 
     # TODO 3. 현재는 정해진 VSG 경로에 따라 전체 위성 경로 생성 => VSG path와 현재 VSG id를 받으면 현 위치부터 다음 VSG 까지의 위성 경로 생성
+    def set_satellite_path_noname(self, gsfc):
+        if gsfc.id not in self.vsg_path or not self.vsg_path[gsfc.id]:
+            print(f"[ERROR] 2-1 ~AGAIN~ No VSG between VSG")
+            gsfc.noname_dropped = True
+            return []
+
+        if gsfc.noname_cur_sat_id == -1:
+            prev_sat = -1
+        else:
+            prev_sat = gsfc.noname_cur_sat_id
+
+        cur_vsg_path_id = gsfc.noname_cur_vsg_path_id
+        next_vsg_path_id = gsfc.noname_cur_vsg_path_id + 1
+
+        src_vsg, src_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
+        dst_vsg, dst_vnf = self.vsg_path[gsfc.id][next_vsg_path_id]
+
+        if prev_sat == -1:
+            is_vnf = self.has_vnf_tag(src_vnf)
+            if is_vnf:
+                current_vnf_id = self.get_vnf_id_for_list(src_vnf)
+                candidate_src_sats = [
+                    sat.id for sat in self.vsgs_list[src_vsg].satellites
+                    if current_vnf_id in sat.vnf_list
+                ]
+            else:
+                candidate_src_sats = [
+                    sat.id for sat in self.vsgs_list[src_vsg].satellites
+                ]
+            if not candidate_src_sats:
+                print(f"[ERROR] 3-1 No SATELLITE TO SRC")
+                gsfc.noname_dropped = True
+                return []
+            # TODO. random choice?
+            src_sat = random.choice(candidate_src_sats)
+            prev_sat = src_sat
+
+        is_vnf = self.has_vnf_tag(dst_vnf)
+        if is_vnf:
+            current_vnf_id = self.get_vnf_id_for_list(dst_vnf)
+            candidate_dst_sats = [
+                sat.id for sat in self.vsgs_list[dst_vsg].satellites
+                if current_vnf_id in sat.vnf_list
+            ]
+        else:
+            candidate_dst_sats = [
+                sat.id for sat in self.vsgs_list[dst_vsg].satellites
+            ]
+
+        if not candidate_dst_sats:
+            print(f"[ERROR] 3-1 No SATELLITE TO DST")
+            gsfc.noname_dropped = True
+            return []
+        # TODO. random choice?
+        dst_sat = random.choice(candidate_dst_sats)
+
+        if prev_sat == dst_sat: # 이동 X
+            if gsfc.noname_cur_sat_id == -1:
+                gsfc.noname_satellite_path.append([prev_sat, src_vnf])
+            gsfc.noname_satellite_path.append([dst_sat, dst_vnf])
+            gsfc.noname_cur_sat_id = dst_sat
+        else:
+            try:
+                sub_path = nx.shortest_path(self.G, source=prev_sat, target=dst_sat)
+
+                if gsfc.noname_cur_sat_id == -1:
+                    gsfc.noname_satellite_path.append([prev_sat, src_vnf])
+                if len(sub_path) > 2:
+                    for sid in sub_path[1:-1]:
+                        gsfc.noname_satellite_path.append([sid, None])
+                gsfc.noname_satellite_path.append([dst_sat, dst_vnf])
+                gsfc.noname_cur_sat_id = dst_sat
+            except nx.NetworkXNoPath:
+                print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
+                gsfc.noname_dropped = True
+                return []
+
     def set_satellite_path(self, gsfc):
         if gsfc.id not in self.vsg_path or not self.vsg_path[gsfc.id]:
             print(f"[ERROR] 2-1 ~AGAIN~ No VSG between VSG")
@@ -1630,6 +1707,11 @@ class Simulation:
                     # TODO 3. vsg path와 현재 vsg id 넘겨주기 (=> 다음 VSG까지의 경로 생성)
                     self.set_satellite_path(gsfc)
                     # print(f"[PATH LOG] GSFC {gsfc.id}: BASIC VSG 경로 설정 완료. Path: {gsfc.basic_satellite_path}")
+
+                elif mode == "noname":
+                    self.set_gsfc_flow_rule(gsfc)
+                    self.set_vsg_path(gsfc)
+                    self.set_satellite_path_noname(gsfc)
 
                 elif mode == "dd":
                     if IS_PROPOSED:
