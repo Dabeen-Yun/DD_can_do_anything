@@ -322,13 +322,13 @@ class Simulation:
         # print(f"[INFO] Set {len(self.congested_sat_ids)} congested satellites (threshold={drop_rate_threshold}): {sorted(self.congested_sat_ids)}")
 
     def get_distance_between_VSGs(self, vid1, vid2):
-        vsg1 = next((x for x in self.vsgs_list if x.get("id") == vid1), None)
-        vsg2 = next((x for x in self.vsgs_list if x.get("id") == vid2), None)
+        vsg1 = next((x for x in self.vsgs_list if x.id == vid1), None)
+        vsg2 = next((x for x in self.vsgs_list if x.id == vid2), None)
 
-        vsg1_lon = vsg1.center_coords.lon
-        vsg1_lat = vsg1.center_coords.lat
-        vsg2_lon = vsg2.center_coords.lon
-        vsg2_lat = vsg2.center_coords.lat
+        vsg1_lon = vsg1.center_coords[0]
+        vsg1_lat = vsg1.center_coords[1]
+        vsg2_lon = vsg2.center_coords[0]
+        vsg2_lat = vsg2.center_coords[1]
 
         vsg1_lon_rad = d2r(vsg1_lon)
         vsg1_lat_rad = d2r(vsg1_lat)
@@ -350,6 +350,7 @@ class Simulation:
 
         # 3D 유클리드 거리 계산 (미터)
         distance_m = math.sqrt((vsg1_x - vsg2_x) ** 2 + (vsg1_y - vsg2_y) ** 2 + (vsg1_z - vsg2_z) ** 2)
+
         return distance_m
 
 
@@ -394,22 +395,30 @@ class Simulation:
                 self.vsgs_list.append(vsg)
                 self.gserver_list.append(ground_server)
 
-                # VSG graph 형성
-                row = vid // num_col
-                col = vid % num_col
-
-                # wrap around 구현
-                for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                    new_row = (row + dr + num_row) % num_row
-                    new_col = (col + dc + num_col) % num_col
-
-                    neighbor_vid = (new_row * num_col) + ((new_col + num_col) % num_col)
-                    # TODO 2. 거리 기반 VSG graph 생성 (VSG의 중심 위경도를 통해 구한 VSG 간 거리를 weight로 설정)
-                    vsg_distance = self.get_distance_between_VSGs(vid, neighbor_vid)
-                    self.vsg_G.add_edge(vid, neighbor_vid, weight=vsg_distance)
-
                 vid += 1
                 gid += 1
+
+        DIRS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        existing = {v.id for v in self.vsgs_list}
+
+        for vid in range(num_row * num_col):
+            if vid not in existing:
+                continue
+
+            row, col = divmod(vid, num_col)
+            for dr, dc in DIRS:
+                nrow = (row + dr) % num_row
+                ncol = (col + dc) % num_col
+                nvid = nrow * num_col + ncol
+
+                if nvid not in existing:
+                    continue  # 이웃이 비어 있으면 스킵
+
+                if self.vsg_G.has_edge(vid, nvid):
+                    continue
+
+                vsg_distance = self.get_distance_between_VSGs(vid, nvid)
+                self.vsg_G.add_edge(vid, nvid, weight=vsg_distance)
 
     def initial_vnfs_to_vsgs(self, mode='basic', alpha=0.5):
         for vsg in self.vsgs_list:
