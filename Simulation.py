@@ -1773,6 +1773,11 @@ class Simulation:
                 break
 
             # TODO 3. 현재 경로 (VSG-VSG 간 경로, Not 전체 경로) 도착 여부 파악 --(Yes)--> 다시 다음 VSG까지의 경로 생성 --(NO)--> 처리 로직 이어서 하기
+            for gsfc in self.gsfc_list:
+                if gsfc.noname_succeed:
+                    continue
+                else:
+                    self.set_satellite_path_noname(gsfc)
 
             ## processing 로직
             # processing queue가 있는 gserver 리스트 추출
