@@ -93,15 +93,16 @@ class Simulation:
             proc_size = len(sat.process_queue)
 
             # queue_ISL: ISL 전송을 기다리는 항목 수 (queue_ISL은 큐들의 리스트이므로 전체 합계)
-            isl_0_count = len(sat.queue_ISL[0])
-            isl_1_count = len(sat.queue_ISL[1])
-            isl_2_count = len(sat.queue_ISL[2])
-            isl_3_count = len(sat.queue_ISL[3])
+            isl_0_count = sum(packet[1] for packet in sat.queue_ISL[0])
+            isl_1_count = sum(packet[1] for packet in sat.queue_ISL[1])
+            isl_2_count = sum(packet[1] for packet in sat.queue_ISL[2])
+            isl_3_count = sum(packet[1] for packet in sat.queue_ISL[3])
 
-            isl_count = sum(len(q) for q in sat.queue_ISL)
+            # 전체 ISL 큐에 쌓인 총 비트(bit) 크기 계산
+            isl_count = sum(sum(packet[1] for packet in q) for q in sat.queue_ISL)
 
             # queue_TSL: TSL 전송을 기다리는 항목 수
-            tsl_count = len(sat.queue_TSL)
+            tsl_count = sum(packet[1] for packet in sat.queue_TSL)
 
             row = {
                 "t": t,
@@ -273,6 +274,7 @@ class Simulation:
                 continue
             for neighbor_id in sat.adj_sat_index_list:
                 if neighbor_id != -1 and neighbor_id not in congested_sat_ids:
+
                     neighbor_sat = self.sat_list[neighbor_id]
                     prop_delay_ms = sat.calculate_delay_to_sat(neighbor_sat)
 
@@ -319,6 +321,39 @@ class Simulation:
         }
         # print(f"[INFO] Set {len(self.congested_sat_ids)} congested satellites (threshold={drop_rate_threshold}): {sorted(self.congested_sat_ids)}")
 
+    def get_distance_between_VSGs(self, vid1, vid2):
+        vsg1 = next((x for x in self.vsgs_list if x.id == vid1), None)
+        vsg2 = next((x for x in self.vsgs_list if x.id == vid2), None)
+
+        vsg1_lon = vsg1.center_coords[0]
+        vsg1_lat = vsg1.center_coords[1]
+        vsg2_lon = vsg2.center_coords[0]
+        vsg2_lat = vsg2.center_coords[1]
+
+        vsg1_lon_rad = d2r(vsg1_lon)
+        vsg1_lat_rad = d2r(vsg1_lat)
+        vsg1_alt_m = ORBIT_ALTITUDE
+        vsg1_R_obj = R_EARTH_RADIUS + vsg1_alt_m
+
+        vsg2_lon_rad = d2r(vsg2_lon)
+        vsg2_lat_rad = d2r(vsg2_lat)
+        vsg2_alt_m = ORBIT_ALTITUDE
+        vsg2_R_obj = R_EARTH_RADIUS + vsg2_alt_m
+
+        vsg1_x = vsg1_R_obj * math.cos(vsg1_lat_rad) * math.cos(vsg1_lon_rad)
+        vsg1_y = vsg1_R_obj * math.cos(vsg1_lat_rad) * math.sin(vsg1_lon_rad)
+        vsg1_z = vsg1_R_obj * math.sin(vsg1_lat_rad)
+
+        vsg2_x = vsg2_R_obj * math.cos(vsg2_lat_rad) * math.cos(vsg2_lon_rad)
+        vsg2_y = vsg2_R_obj * math.cos(vsg2_lat_rad) * math.sin(vsg2_lon_rad)
+        vsg2_z = vsg2_R_obj * math.sin(vsg2_lat_rad)
+
+        # 3D 유클리드 거리 계산 (미터)
+        distance_m = math.sqrt((vsg1_x - vsg2_x) ** 2 + (vsg1_y - vsg2_y) ** 2 + (vsg1_z - vsg2_z) ** 2)
+
+        return distance_m
+
+
     def initial_vsg_regions(self):
         self.vsgs_list = []
         self.gserver_list = []
@@ -360,20 +395,30 @@ class Simulation:
                 self.vsgs_list.append(vsg)
                 self.gserver_list.append(ground_server)
 
-                # VSG graph 형성
-                row = vid // num_col
-                col = vid % num_col
-
-                # wrap around 구현
-                for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                    new_row = (row + dr + num_row) % num_row
-                    new_col = (col + dc + num_col) % num_col
-
-                    neighbor_vid = (new_row * num_col) + ((new_col + num_col) % num_col)
-                    self.vsg_G.add_edge(vid, neighbor_vid, weight=1)
-
                 vid += 1
                 gid += 1
+
+        DIRS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        existing = {v.id for v in self.vsgs_list}
+
+        for vid in range(num_row * num_col):
+            if vid not in existing:
+                continue
+
+            row, col = divmod(vid, num_col)
+            for dr, dc in DIRS:
+                nrow = (row + dr) % num_row
+                ncol = (col + dc) % num_col
+                nvid = nrow * num_col + ncol
+
+                if nvid not in existing:
+                    continue  # 이웃이 비어 있으면 스킵
+
+                if self.vsg_G.has_edge(vid, nvid):
+                    continue
+
+                vsg_distance = self.get_distance_between_VSGs(vid, nvid)
+                self.vsg_G.add_edge(vid, nvid, weight=vsg_distance)
 
     def initial_vnfs_to_vsgs(self, mode='basic', alpha=0.5):
         for vsg in self.vsgs_list:
@@ -1275,7 +1320,6 @@ class Simulation:
 
         # 고려할 사항 1. 다음 노드와의 거리
         # 고려할 사항 2. 해당 노드의 큐 상태
-        # 추가되는 hop 길이가 등차수열이 됨 --> 총 길이는 queue 반영 가중치에만 사용
         for vnf_combo in vnf_combinations:
             path = list(vnf_combo)
             total_hops = 0
@@ -1322,7 +1366,7 @@ class Simulation:
                 else:
                     if path[i - 1] == path[i]:
                         full_path.append([path[i], (f"vnf{vnf_sequence[current_vnf_id]}")])
-                        # TODO. 이전 queue_ISL 길이 빼기
+
                         next_sat = self.sat_list[path[i]]
                         hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
                         transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
@@ -1388,14 +1432,13 @@ class Simulation:
             if path[-2] == path[-1]:
                 if is_dst_sat_added_vnf:
                     full_path.append([path[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
-                    # TODO. 이전 queue_ISL 길이 빼기
+
                     next_sat = self.sat_list[path[-1]]
                     hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
                     hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
                     proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
                     current_queue_delay += hop_alpha * proc_queue  # process_queue의 길이
                 else:
-                    # TODO. 이전 queue_ISL 길이 빼기
                     full_path.append([path[-1], ("dst")])
             else:
                 segment = self.get_full_path(path[-2], path[-1])
@@ -1759,7 +1802,7 @@ class Simulation:
                         gserver = gsfc.gserver
                         # print(f"[TRANS COMPLETE] Sat {sat.id} to gserver {gserver.id}: GSFC {gsfc.id} 전송 완료. Handover 시작.")
 
-                        gserver.add_to_process_queue(gsfc.id, gsfc.num_completed_vnf, gsfc.vnf_sizes[gsfc.num_completed_vnf]) #TODO.SFC 전체 사이즈가 아닌 VNF 사이즈로 수정
+                        gserver.add_to_process_queue(gsfc.id, gsfc.num_completed_vnf, gsfc.vnf_sizes[gsfc.num_completed_vnf])
 
             for gserver in self.gserver_list:
                 if gserver.queue_TSL:
