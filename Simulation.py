@@ -845,8 +845,8 @@ class Simulation:
         else:
             prev_sat = gsfc.noname_satellite_path[-1]
 
-            cur_vsg_path_id = gsfc.noname_cur_vsg_path_id
-            next_vsg_path_id = gsfc.noname_cur_vsg_path_id + 1
+            cur_vsg_path_id = gsfc.noname_cur_vsg_path_id - 1
+            next_vsg_path_id = gsfc.noname_cur_vsg_path_id
 
             src_vsg, src_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
             dst_vsg, dst_vnf = self.vsg_path[gsfc.id][next_vsg_path_id]
@@ -887,14 +887,6 @@ class Simulation:
 
             src_sat, dst_sat, sre_dst_distance_m = self.get_src_dst_sat(src_vsg, dst_vsg, candidate_src_sats, candidate_dst_sats)
             prev_sat = src_sat
-            # print(src_vsg, dst_vsg)
-            # print(src_sat, dst_sat, sre_dst_distance_m)
-            # input()
-            # TODO. random choice?
-            # src_sat = random.choice(candidate_src_sats)
-            # prev_sat = src_sat
-            # TODO. random choice?
-            # dst_sat = random.choice(candidate_dst_sats)
 
             if prev_sat == dst_sat: # 이동 X
                 gsfc.noname_satellite_path.append([dst_sat, dst_vnf])
