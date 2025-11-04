@@ -729,6 +729,87 @@ class Simulation:
             return vnf_tag[3:]
         return False
 
+    def _to_ecef_m(self, lat_deg, lon_deg, alt_m=ORBIT_ALTITUDE):
+        """(deg, deg, m) -> ECEF (x,y,z) in meters (구형 지구 근사)"""
+        lat = np.radians(lat_deg)
+        lon = np.radians(lon_deg)
+        r = R_EARTH_RADIUS + (alt_m if alt_m is not None else 0.0)
+        x = r * np.cos(lat) * np.cos(lon)
+        y = r * np.cos(lat) * np.sin(lon)
+        z = r * np.sin(lat)
+        return x, y, z
+
+    def _filter_sats_with_xyz_m(self, vsg_sats, candidate_ids):
+        """
+        VSG 위성 리스트에서 후보 ID만 추출하고 ECEF(m) 좌표까지 준비.
+        sat.alt가 km라면 alt_m = s.alt * 1000.0 로 바꿔주세요.
+        """
+        cid = set(candidate_ids or [])
+        rows = []
+        for s in vsg_sats:
+            if s.id in cid:
+                alt_m = getattr(s, "alt", 0.0)  # meters 가정
+                x, y, z = self._to_ecef_m(float(s.lat), float(s.lon), float(alt_m))
+                rows.append((int(s.id), x, y, z))
+        return rows
+
+    def _best_pair_euclid_broadcast_m(self, src_arr, dst_arr):
+        """
+        src_arr: (n,4)[id,x,y,z] in meters, dst_arr: (m,4)
+        브로드캐스팅으로 제곱거리 행렬 계산 후 최소 쌍.
+        """
+        sx = src_arr[:, 1][:, None];
+        sy = src_arr[:, 2][:, None];
+        sz = src_arr[:, 3][:, None]
+        dx = dst_arr[:, 1][None, :];
+        dy = dst_arr[:, 2][None, :];
+        dz = dst_arr[:, 3][None, :]
+
+        D2 = (sx - dx) ** 2 + (sy - dy) ** 2 + (sz - dz) ** 2
+        k = int(np.argmin(D2))
+        i, j = divmod(k, D2.shape[1])
+        return int(src_arr[i, 0]), int(dst_arr[j, 0]), float(np.sqrt(D2[i, j]))  # 거리(m)
+
+    def _best_pair_euclid_ckdtree_m(self, src_arr, dst_arr):
+        """
+        큰 스케일에서는 KD-트리로 최근접 탐색 (meters).
+        """
+        from scipy.spatial import cKDTree
+        tree = cKDTree(dst_arr[:, 1:4])  # xyz (meters)
+        dists, idxs = tree.query(src_arr[:, 1:4], k=1)
+        k = int(np.argmin(dists))
+        return int(src_arr[k, 0]), int(dst_arr[int(idxs[k]), 0]), float(dists[k])  # 거리(m)
+
+    def get_src_dst_sat(self, src_vsg, dst_vsg, candidate_src_sats, candidate_dst_sats,
+                        brute_threshold_pairs=200_000, prefer_ckdtree=True):
+        """
+        src_vsg/dst_vsg: VSG 인덱스
+        candidate_*_sats: 고려할 위성 id 모음
+        반환: (best_src_id, best_dst_id) 또는 return_distance=True면 (best_src_id, best_dst_id, best_dist_m)
+        전부 미터(m) 기준.
+        """
+        src_rows = self._filter_sats_with_xyz_m(self.vsgs_list[src_vsg].satellites, candidate_src_sats)
+        dst_rows = self._filter_sats_with_xyz_m(self.vsgs_list[dst_vsg].satellites, candidate_dst_sats)
+
+        src_arr = np.array(src_rows, dtype=float)
+        dst_arr = np.array(dst_rows, dtype=float)
+
+        n, m = len(src_arr), len(dst_arr)
+        pairs = n * m
+
+        if pairs <= brute_threshold_pairs:
+            sid, did, dist_m = self._best_pair_euclid_broadcast_m(src_arr, dst_arr)
+        else:
+            if prefer_ckdtree:
+                try:
+                    sid, did, dist_m = self._best_pair_euclid_ckdtree_m(src_arr, dst_arr)
+                except Exception:
+                    sid, did, dist_m = self._best_pair_euclid_broadcast_m(src_arr, dst_arr)
+            else:
+                sid, did, dist_m = self._best_pair_euclid_broadcast_m(src_arr, dst_arr)
+
+        return (sid, did, dist_m)
+
     # TODO 3. 현재는 정해진 VSG 경로에 따라 전체 위성 경로 생성 => VSG path와 현재 VSG id를 받으면 현 위치부터 다음 VSG 까지의 위성 경로 생성
     def set_satellite_path_noname(self, gsfc):
         if gsfc.id not in self.vsg_path or not self.vsg_path[gsfc.id]:
@@ -748,8 +829,8 @@ class Simulation:
         dst_vsg, dst_vnf = self.vsg_path[gsfc.id][next_vsg_path_id]
 
         if prev_sat == -1:
-            is_vnf = self.has_vnf_tag(src_vnf)
-            if is_vnf:
+            is_vnf_src = self.has_vnf_tag(src_vnf)
+            if is_vnf_src:
                 current_vnf_id = self.get_vnf_id_for_list(src_vnf)
                 candidate_src_sats = [
                     sat.id for sat in self.vsgs_list[src_vsg].satellites
@@ -763,12 +844,9 @@ class Simulation:
                 print(f"[ERROR] 3-1 No SATELLITE TO SRC")
                 gsfc.noname_dropped = True
                 return []
-            # TODO. random choice?
-            src_sat = random.choice(candidate_src_sats)
-            prev_sat = src_sat
 
-        is_vnf = self.has_vnf_tag(dst_vnf)
-        if is_vnf:
+        is_vnf_dst = self.has_vnf_tag(dst_vnf)
+        if is_vnf_dst:
             current_vnf_id = self.get_vnf_id_for_list(dst_vnf)
             candidate_dst_sats = [
                 sat.id for sat in self.vsgs_list[dst_vsg].satellites
@@ -783,8 +861,17 @@ class Simulation:
             print(f"[ERROR] 3-1 No SATELLITE TO DST")
             gsfc.noname_dropped = True
             return []
+
+        src_sat, dst_sat, sre_dst_distance_m = self.get_src_dst_sat(src_vsg, dst_vsg, candidate_src_sats, candidate_dst_sats)
+        prev_sat = src_sat
+        # print(src_vsg, dst_vsg)
+        # print(src_sat, dst_sat, sre_dst_distance_m)
+        # input()
         # TODO. random choice?
-        dst_sat = random.choice(candidate_dst_sats)
+        # src_sat = random.choice(candidate_src_sats)
+        # prev_sat = src_sat
+        # TODO. random choice?
+        # dst_sat = random.choice(candidate_dst_sats)
 
         if prev_sat == dst_sat: # 이동 X
             if gsfc.noname_cur_sat_id == -1:
