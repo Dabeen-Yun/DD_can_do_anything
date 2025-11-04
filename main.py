@@ -24,7 +24,7 @@ class Main:
     # TODO. data rate이 오를 수록 시간이 더 오래 걸림
     # TODO. proposed dd가 더 오래 걸림
 
-    modes = ['basic', 'dd'] # dd, sd, base
+    modes = ['basic', 'nonamed', 'dd'] # dd, sd, base
     proposed_list = [True, False]
 
     csv_path_basic = None
@@ -33,10 +33,10 @@ class Main:
 
     for pair in tqdm(data_rate_pairs):
         for mode in modes: # basic일 땐 proposed_list 안 돌게
-            if mode == 'basic':
+            if mode != 'dd':
                 simulation = Simulation()
                 simulation.simulation_proceeding(mode, pair, proposed=False)
-                csv_path_basic = f"./results/{NUM_GSFC}/basic/{pair[0] / 1e6}sat_{pair[1] / 1e6}gs/success_results.csv"
+                csv_path_basic = f"./results/{NUM_GSFC}/{mode}/{pair[0] / 1e6}sat_{pair[1] / 1e6}gs/success_results.csv"
             else:
                 for proposed in proposed_list:
                     simulation = Simulation()
