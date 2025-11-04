@@ -48,13 +48,20 @@ class Main:
                         csv_path_dd = f"./results/{NUM_GSFC}/{mode}/{pair[0] / 1e6}sat_{pair[1] / 1e6}gs/success_results.csv"
 
 
+        # plot_mean_e2e_stack_for_pair(pair[0], pair[1],
+        #                              csv_paths=[
+        #                                  csv_path_basic,
+        #                                  csv_path_dd,
+        #                                  csv_path_proposed_dd,
+        #                              ],
+        #                              labels=["BASIC", "DD", "PROPOSED DD"],
+        #                              results_root=f"./results/{NUM_GSFC}/plot/{pair[0] / 1e6}sat_{pair[1] / 1e6}gs/",
+        #                              out_png_filename="mean_stack_e2e.png"
+        #                              )
+
         plot_mean_e2e_stack_for_pair(pair[0], pair[1],
-                                     csv_paths=[
-                                         csv_path_basic,
-                                         csv_path_dd,
-                                         csv_path_proposed_dd,
-                                     ],
-                                     labels=["BASIC", "DD", "PROPOSED DD"],
+                                     csv_paths=[f"./results/{NUM_GSFC}/noname/{pair[0] / 1e6}sat_{pair[1] / 1e6}gs/success_results.csv"],
+                                     labels=["noname"],
                                      results_root=f"./results/{NUM_GSFC}/plot/{pair[0] / 1e6}sat_{pair[1] / 1e6}gs/",
                                      out_png_filename="mean_stack_e2e.png"
                                      )
