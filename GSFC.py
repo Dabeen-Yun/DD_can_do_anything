@@ -12,8 +12,8 @@ class GSFC:
         self.gserver = None
 
         # ~~ 구현 변수
-        self.noname_cur_vsg_id = 0
-        self.noname_cur_vsg_path_id = 0
+        self.current_essential_path_id = 0 # 현재 vsg path를 만드는데 사용한 essential vsg idx
+        self.noname_cur_vsg_path_id = 0 # 현재 satellite_path를 만드는데 사용한 vsg_idx
         self.noname_satellite_path = []
         self.noname_succeed = False
         self.noname_dropped = False
@@ -25,6 +25,7 @@ class GSFC:
         self.noname_trans_delay_ms = 0
         self.noname_queue_delay_ms = 0
         self.noname_e2e_delay_ms = 0
+
 
         # VSG 논문 구현 변수
         self.basic_satellite_path = []

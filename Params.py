@@ -19,7 +19,7 @@ PARAM_C = 299792458 # [m/s]
 # VNF_PER_SFC = (1, 2) # 현재 5개 고정
 SFC_TYPE_LIST = {
     0: ['0', '1', '2', '3'], #eMBB
-    1: ['0'], #URLLC
+    1: ['0'], #uRLLC
     2: ['4', '5', '6'], # 'mMTC'
 }
 VNF_SIZE = 1e6 # [bit]  ≈125 KB
@@ -28,7 +28,7 @@ SFC_SIZE = 5e6 # [bit]  ≈625 KB
 #512 * 8 # [bit]
 
 # simulation
-NUM_ITERATIONS = 10 #400
+NUM_ITERATIONS = 100 #400
 NUM_GSFC = 3 #33 # int(2*1024*1024/SFC_SIZE*8) #[per ms]
 TAU = 1000 # 1ms 단위로 맞추기
 
