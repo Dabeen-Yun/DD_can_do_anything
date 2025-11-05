@@ -452,13 +452,13 @@ class Simulation:
                     target_sat = random.choice(unassigned_sats)
                     target_sat.assign_vnf(vnf_type)
 
-    # ======== TIME_TICK에 사용 ========
     def check_vsg_regions(self):
         vid = 0
-        sim_region = []
+        is_changed = False
 
         lat_bins = np.arange(LAT_RANGE[0], LAT_RANGE[1], LAT_STEP)
         lon_bins = np.arange(LON_RANGE[0], LON_RANGE[1], LON_STEP)
+        print(f"DEBUG: lat_bins size: {len(lat_bins)}, lon_bins size: {len(lon_bins)}")
 
         for lat_min in lat_bins:
             lat_max = lat_min + LAT_STEP
@@ -475,15 +475,13 @@ class Simulation:
                     print("[WARNING] NO SATELLITES")
                     continue
 
-
                 for sat in cell_sats:
                     sat.current_vsg_id = vid
 
+                if not is_changed:
+                    is_changed = self.vsgs_list[vid].satellites != cell_sats
                 self.vsgs_list[vid].satellites = cell_sats
-                sim_region.extend(cell_sats)
                 vid += 1
-
-        self.sim_sat_list = sim_region
 
     def reassign_vnfs_to_satellite(self, vsgs_to_reassign):
         for vsg in vsgs_to_reassign:
@@ -1677,6 +1675,45 @@ class Simulation:
                 return node_id - NUM_SATELLITES
         return None
 
+    def check_vsg_regions(self):
+        vid = 0
+        is_changed = False
+
+        # lat_bins = np.arange(-1*POLAR_LATITUDE, POLAR_LATITUDE, self.lat_step)
+        lat_bins = np.arange(LAT_RANGE[0], LAT_RANGE[1], LAT_STEP)
+        lon_bins = np.arange(LON_RANGE[0], LON_RANGE[1], LON_STEP)
+
+        for lat_min in lat_bins:
+            lat_max = lat_min + LAT_STEP
+
+            for lon_min in lon_bins:
+                lon_max = lon_min + LON_STEP
+
+                # 현재 그리드 셀 안에 속하는 위성 추출
+                cell_sats = [
+                    sat for sat in self.sat_list
+                    if lat_min <= sat.lat < lat_max and lon_min <= sat.lon < lon_max
+                ]
+
+                if not cell_sats:
+                    print("[WARNING] NO SATELLITES")
+                    continue
+
+                for sat in cell_sats:
+                    sat.current_vsg_id = vid
+
+                for vsg in self.vsgs_list:
+                    if not is_changed:
+                        is_changed = vsg.satellites != set(s.id for s in cell_sats)
+                    vsg.satellites = cell_sats
+
+                if not is_changed:
+                    is_changed = self.vsgs_list[vid].satellites != set(s.id for s in cell_sats)
+                    self.vsgs_list[vid].satellites = cell_sats
+                vid += 1
+
+        return is_changed
+
     def visualized_network_constellation(self, filename="./results/network_constellation.png"):
         # 컬러맵 생성 (VSG별 색상)
         cmap = cm.get_cmap('tab20', len(self.vsgs_list))
@@ -2001,7 +2038,43 @@ class Simulation:
             satellite_status_filename = "satellite_status_per_time.csv"
             self.write_satellite_status_csv(t, satellite_status_filename)
 
-            t += 1
+            for sat in self.sat_list:
+                sat.time_tic(t)
+
+            # self.check_vsg_regions()
+
+            vid = 0
+            is_changed = False
+
+            lat_bins = np.arange(LAT_RANGE[0], LAT_RANGE[1], LAT_STEP)
+            lon_bins = np.arange(LON_RANGE[0], LON_RANGE[1], LON_STEP)
+            print(f"DEBUG: lat_bins size: {len(lat_bins)}, lon_bins size: {len(lon_bins)}")
+
+            for lat_min in lat_bins:
+                lat_max = lat_min + LAT_STEP
+                for lon_min in lon_bins:
+                    lon_max = lon_min + LON_STEP
+
+                    # 현재 그리드 셀 안에 속하는 위성 추출
+                    cell_sats = [
+                        sat for sat in self.sat_list
+                        if lat_min <= sat.lat < lat_max and lon_min <= sat.lon < lon_max
+                    ]
+
+                    if not cell_sats:
+                        print("[WARNING] NO SATELLITES")
+                        continue
+
+                    for sat in cell_sats:
+                        sat.current_vsg_id = vid
+
+                    if not is_changed:
+                        is_changed = self.vsgs_list[vid].satellites != cell_sats
+                    self.vsgs_list[vid].satellites = cell_sats
+                    vid += 1
+
+            # self.visualized_network_constellation()
+            t+=1
 
         success_filename = "success_results.csv"
         self.write_success_results_csv(success_filename, mode)
