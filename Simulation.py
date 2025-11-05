@@ -517,7 +517,7 @@ class Simulation:
                 if sat.vnf_list in vsg.assigned_vnfs:
                     continue
 
-                # TODO. append? 몇 개까지?
+                # TODO 2. append? 몇 개까지? -> 3개까지
                 sat.vnf_list.append(vnf)
                 break
 
@@ -598,13 +598,30 @@ class Simulation:
             sfc_type_idx = random.randint(0, 2)
             vnf_sequence = SFC_TYPE_LIST.get(sfc_type_idx)
 
+            # TODO 0. SFC 종류 별 경로 설정 (일단 수정 완. 디버깅 필요)
             if sfc_type_idx == 1: # uRLLC:
                 # SRC VSG와 DST VSG가 동일하도록
 
                 src_vsg = random.choice(self.vsgs_list)
                 src_vsg_id = src_vsg.id
                 dst_vsg_id = src_vsg_id
-            else:
+
+                # 2. 각 VNF가 포함된 VSG 식별
+                vnf_to_vsg = {}
+                for vnf in vnf_sequence:
+                    candidate_vsgs = [vsg for vsg in self.vsgs_list if vnf in vsg.assigned_vnfs]
+                    if not candidate_vsgs:
+                        continue
+
+                    distances = []
+                    for vsg in candidate_vsgs:
+                        distance = nx.shortest_path_length(self.vsg_G, source=src_vsg, target=vsg)
+                        distances.append((vsg, distance))
+                    distances.sort(key=lambda x: x[0])
+                    selected_vsg = distances[0][1]
+
+                    vnf_to_vsg[vnf] = selected_vsg.id
+            elif sfc_type_idx == 0: #eMBB
                 # 1. src_vsg를 무작위로 선택
                 src_vsg = random.choice(self.vsgs_list)
                 src_vsg_id = src_vsg.id
@@ -632,14 +649,64 @@ class Simulation:
                         print(f"[WARNING] Only one VSG found (ID: {src_vsg_id}). Skipping GSFC creation.")
                         continue  # 다음 루프로 이동
 
-            # 2. 각 VNF가 포함된 VSG 식별
-            vnf_to_vsg = {}
-            for vnf in vnf_sequence:
-                candidate_vsgs = [vsg for vsg in self.vsgs_list if vnf in vsg.assigned_vnfs]
-                if not candidate_vsgs:
-                    continue
-                selected_vsg = random.choice(candidate_vsgs)
-                vnf_to_vsg[vnf] = selected_vsg.id
+                # 2. 각 VNF가 포함된 VSG 식별
+                vnf_to_vsg = {}
+                for vnf in vnf_sequence:
+                    candidate_vsgs = [vsg for vsg in self.vsgs_list if vnf in vsg.assigned_vnfs]
+                    if not candidate_vsgs:
+                        continue
+                    selected_vsg = random.choice(candidate_vsgs)
+                    vnf_to_vsg[vnf] = selected_vsg.id
+
+                # 2. 각 VNF가 포함된 VSG 식별
+                vnf_to_vsg = {}
+                for i, vnf in enumerate(vnf_sequence):
+                    candidate_vsgs = [vsg for vsg in self.vsgs_list if vnf in vsg.assigned_vnfs]
+                    if not candidate_vsgs:
+                        continue
+
+                    distances = []
+                    if i == 0:
+                        prev_vsg = src_vsg
+                    else:
+                        prev_vsg = vnf_sequence[i-1]
+
+                    for vsg in candidate_vsgs:
+                        distance = nx.shortest_path_length(self.vsg_G, source=prev_vsg, target=vsg)
+                        distances.append((vsg, distance))
+                    distances.sort(key=lambda x: x[0])
+                    selected_vsg = distances[0][1]
+
+                    vnf_to_vsg[vnf] = selected_vsg.id
+
+            else: # mMTC
+                src_vsg = random.choice(self.vsgs_list)
+                src_vsg_id = src_vsg.id
+                src_lon = src_vsg.center_coords[0]  # (lon, lat)이므로 [0]이 lon
+
+                # 2. dst_vsg 후보: src_vsg_id를 제외하고, 경도가 src_vsg의 경도보다 큰 VSG들
+                # 이렇게 하면 'src가 왼쪽, dst가 오른쪽' 조건이 만족됩니다.
+                dst_candidates = [
+                    v for v in self.vsgs_list
+                    if v.id != src_vsg_id and v.center_coords[0] > src_lon
+                ]
+
+                if dst_candidates:
+                    # 조건(src_lon < dst_lon)을 만족하는 후보가 있으면 그 중에서 무작위 선택
+                    dst_vsg_id = random.choice(dst_candidates).id
+                else:
+                    # 조건(src_lon < dst_lon)을 만족하는 후보가 없거나, src_vsg 밖에 없는 경우
+                    # (예: src가 가장 동쪽에 있는 VSG인 경우)
+                    # 3. 차선책: src_vsg_id를 제외한 나머지 모든 VSG 중에서 무작위 선택
+                    other_vsgs = [v for v in self.vsgs_list if v.id != src_vsg_id]
+                    if other_vsgs:
+                        dst_vsg_id = random.choice(other_vsgs).id
+                    else:
+                        # VSG가 하나뿐인 경우. 생성을 건너뜁니다.
+                        print(f"[WARNING] Only one VSG found (ID: {src_vsg_id}). Skipping GSFC creation.")
+                        continue  # 다음 루프로 이동
+
+                vnf_to_vsg = {} # store된 위성에서만 처리
 
             gsfc = GSFC(self.gsfc_id, src_vsg_id, dst_vsg_id, vnf_sequence, vnf_to_vsg, vnf_size_mode)
             # print("gsfc list : ", self.gsfc_id, src_vsg_id, vnf_sequence, dst_vsg_id)
@@ -925,8 +992,8 @@ class Simulation:
         return dst_sat_id
 
 
-    # TODO 3. 현재는 정해진 VSG 경로에 따라 전체 위성 경로 생성 => VSG path와 현재 VSG id를 받으면 현 위치부터 다음 VSG 까지의 위성 경로 생성
-    def set_satellite_path_noname(self, gsfc):
+    # TODO 0. sfc 종류에 맞게 경로 생성 잘 되는지 확인 (mMTC: 중간 경로 없음만 처리하면 될 듯)
+    def set_satellite_path_noname(self, gsfc, mode):
         if gsfc.id not in self.vsg_path or not self.vsg_path[gsfc.id]:
             print(f"[ERROR] 2-1 ~AGAIN~ No VSG between VSG")
             gsfc.noname_dropped = True
@@ -1021,9 +1088,10 @@ class Simulation:
             else:
                 prev_sat = src_sat
 
-            # TODO. random? longgest?
-            _, vnf_sat, dst_vnf_distance_m = self.get_src_dst_sat(dst_vsg, dst_vsg, [dst_sat], candidate_dst_sats)
-            # vnf_sat = self.get_longgest_vnf_dst_sat_id(candidate_dst_sats)
+            if "longgest" in mode:
+                vnf_sat = self.get_longgest_vnf_dst_sat_id(candidate_dst_sats)
+            else:
+                _, vnf_sat, dst_vnf_distance_m = self.get_src_dst_sat(dst_vsg, dst_vsg, [dst_sat], candidate_dst_sats)
 
             # src_sat -> dst_sat
             if src_sat == dst_sat:  # 이동 X
@@ -2067,7 +2135,8 @@ class Simulation:
         ## 1. Network architecture (위성, VSG, 지상국, VNF 할당)
         # 1-1. 토폴로지 초기화
         self.set_constellation(NUM_SATELLITES, NUM_ORBITS)  # 위성 위치 초기화
-        self.initial_vsg_regions()  # VSG 영역, VSG 내 위성 및 지상국 초기화
+        self.initial_vsg_regions()  # VSG 영역, VSG 내 위성 및 지상국 초기화\
+        # TODO 1. 각 위성 당 탑재 가능 VNF 수: 3개 이상, 네트워크 내 80% 이상은 vnf를 탑재하고 있을 것
         self.initial_vnfs_to_vsgs()  # VSG 당 VNF 할당
 
         # 1-2. congestion 위성 설정
@@ -2086,204 +2155,205 @@ class Simulation:
         t = 0
 
         while True:
-            # print(f"\n==================== TIME TICK {t} MS ====================")
+            print(f"\n==================== TIME TICK {t} MS ====================")
 
-            # # gsfc 생성
-            # if t <= NUM_ITERATIONS:
-            #     self.generate_gsfc(NUM_GSFC, vnf_size_mode)
-            # # gsfc 경로 설정 (새로 생성된 gsfc)
-            # for gsfc in self.gsfc_list[new_gsfc_id_start:]:
-            #     # print(f"[GSFC GENERATION] Time {t} Mode {mode}: GSFC {gsfc.id} 생성 완료. 경로 탐색 시작.")
-            #
-            #     if mode == "basic":
-            #         self.set_gsfc_flow_rule(gsfc)
-            #         self.set_vsg_path(gsfc)
-            #         # TODO 3. vsg path와 현재 vsg id 넘겨주기 (=> 다음 VSG까지의 경로 생성)
-            #         self.set_satellite_path(gsfc)
-            #         # print(f"[PATH LOG] GSFC {gsfc.id}: BASIC VSG 경로 설정 완료. Path: {gsfc.basic_satellite_path}")
-            #
-            #     elif mode == "noname":
-            #         self.set_gsfc_flow_rule(gsfc)
-            #         self.set_vsg_path(gsfc)
-            #         self.set_satellite_path_noname(gsfc)
-            #         # print(f"[GSFC GENERATION] Time {t} Mode {mode}: GSFC {gsfc.id} 생성 완료. 경로 탐색 시작.")
-            #
-            #     elif mode == "dd":
-            #         if IS_PROPOSED:
-            #             # proposed
-            #             self.proposed_find_satellite_path(gsfc)
-            #             # print(f"[PATH LOG] GSFC {gsfc.id}: PROPOSED DD 경로 설정 완료. Path: {gsfc.dd_satellite_path}")
-            #         else:
-            #             # DD
-            #             self.find_shortest_satellite_vnf_path(gsfc)  # vsg_path 없이 satellite_path 생성
-            #             # print(f"[PATH LOG] GSFC {gsfc.id}: DD 경로 설정 완료. Path: {gsfc.dd_satellite_path}")
-            #
-            #     elif mode == "sd":
-            #         if IS_PROPOSED:
-            #             # proposed
-            #             self.advanced_proposed_find_satellite_path(gsfc)
-            #             # print(f"[PATH LOG] GSFC {gsfc.id}: PROPOSED SD 경로 설정 완료. Path: {gsfc.sd_satellite_path}")
-            #         else:
-            #             # SD 경로 생성
-            #             self.find_shortest_satellite_path_between_src_dst(gsfc)
-            #             # print(f"[PATH LOG] GSFC {gsfc.id}: SD 경로 설정 완료. Path: {gsfc.sd_satellite_path}")
-            #
-            #     ## 첫 위치 설정
-            #     satellite_path_attr = f"{mode}_satellite_path"
-            #     current_satellite_path = getattr(gsfc, satellite_path_attr)
-            #
-            #     first_sat_id, first_vnf = current_satellite_path[0]
-            #     first_sat = self.sat_list[first_sat_id]
-            #     is_vnf = self.has_vnf_tag(first_vnf)
-            #     # VNF 여부에 따라 process queue, transmit queue에 추ㅏㄱ
-            #     if is_vnf:  # --(예)--> 해당 위성 processing queue에 추가 (gsfc id, vnf id, vnf size)
-            #         vnf_id = gsfc.num_completed_vnf  # vnf 종류가 아닌, 현 gsfc에서 실행되는 vnf 순서
-            #         first_sat.add_to_process_queue(gsfc.id, vnf_id, gsfc.vnf_sizes[vnf_id])
-            #         # print(f"[QUEUE LOG] GSFC {gsfc.id} -> Sat {first_sat_id}: PROC Queue 진입 (VNF {vnf_id}). Size: {gsfc.vnf_sizes[vnf_id]}.")
-            #     else:  # --(아니오)--> 해당 위성 transmitting queue에 추가 (gsfc id, vnf size), 해당 gsfc의 transmitting 변수 True로 설정
-            #         # 해당 gsfc의 다음 위성으로의 경로 찾기 + isl link queue 추가
-            #         processed_path_attr = f"{mode}_processed_satellite_path"
-            #         current_processed_path = getattr(gsfc, processed_path_attr)
-            #         current_processed_path.append(current_satellite_path[0])
-            #         first_sat.add_to_transmit_queue(gsfc, mode=mode)
-            #     new_gsfc_id_start += 1
-            #
-            # # 종료 시점 파악 #
-            # # 모든 gsfc가 success or dropped이 될 때까지 #
-            # all_completed = True
-            # if self.gsfc_list:
-            #     for gsfc in self.gsfc_list:
-            #         succeed_attr = f"{mode}_succeed"
-            #         dropped_attr = f"{mode}_dropped"
-            #
-            #         if not getattr(gsfc, succeed_attr, False) and not getattr(gsfc, dropped_attr, False):
-            #             all_completed = False
-            #             break
-            # else:
-            #     # gsfc가 아직 하나도 생성되지 않았다면, 루프를 계속 진행합니다 (GSFC 생성 시간 t <= 40 가정)
-            #     all_completed = False
-            #
-            # if all_completed:  # GSFC 생성이 끝난 후 (t > 40), 모든 GSFC가 완료되면 루프 종료
-            #     print("\n*** 모든 GSFC가 succeed 또는 dropped 상태로 완료되었습니다. 시뮬레이션을 종료합니다. ***")
-            #     break
-            #
-            # # TODO 3. 현재 경로 (VSG-VSG 간 경로, Not 전체 경로) 도착 여부 파악 --(Yes)--> 다시 다음 VSG까지의 경로 생성 --(NO)--> 처리 로직 이어서 하기
-            # for gsfc in self.gsfc_list:
-            #     if gsfc.noname_succeed:
-            #         continue
-            #     else:
-            #         remain_path = gsfc.get_remain_path(mode=mode)
-            #         if len(remain_path) < 1:
-            #             cur_sat_id = gsfc.noname_processed_satellite_path[-1][0]
-            #             cur_sat = self.sat_list[cur_sat_id]
-            #
-            #             # print(f"[PATH LOG] time {t} GSFC {gsfc.id} on Node {cur_sat.id} in VSG {cur_sat.current_vsg_id}: Destination reached. Success.")
-            #
-            #             self.set_satellite_path_noname(gsfc)
-            #             cur_sat.add_to_transmit_queue(gsfc, mode=mode)
-            #
-            # ## processing 로직
-            # # processing queue가 있는 gserver 리스트 추출
-            # for gserver in self.gserver_list:
-            #     if gserver.process_queue:
-            #         if (mode == "dd") or (mode == "basic"): #호옥쉬나~
-            #             print(f"[ERROR] what??????? gserver activate in dd?????")
-            #             return
-            #
-            #         # print(f"[PROCESSING START] Time {t}: {gserver.id} 지상국에서 VNF 처리 시작.")
-            #         gserver.process_vnfs(self.gsfc_list, mode=mode, processing_rate=gs_data_rate)
-            #
-            # # processing queue가 있는 위성 리스트 추출 - # Option 1. 위성마다 한 번에 실행할 수 있는 vnf 개수 설정
-            # for sat in self.sat_list:
-            #     if sat.process_queue:
-            #         # print(f"[PROCESSING START] Time {t}: {sat.id} 위성에서 VNF 처리 시작.")
-            #         sat.process_vnfs(self.gsfc_list, mode=mode, processing_rate=sat_data_rate)
-            #
-            # ## tx, prop 로직
-            # for sat in self.sat_list:
-            #     if sat.queue_TSL:
-            #         # print(f"[TRANSMISSION START] Time {t}: {sat.id} 위성에서 TSL 전송 시작.")
-            #         transmit_completed_gsfc_ids = sat.transmit_TSL_gsfcs(self.gsfc_list, mode=mode)
-            #
-            #         for gsfc_id in transmit_completed_gsfc_ids: # gserver로 전송 완료 --> gserver의 process queue에 넣음
-            #             gsfc = self.gsfc_list[gsfc_id]
-            #             gserver = gsfc.gserver
-            #             # print(f"[TRANS COMPLETE] Sat {sat.id} to gserver {gserver.id}: GSFC {gsfc.id} 전송 완료. Handover 시작.")
-            #
-            #             gserver.add_to_process_queue(gsfc.id, gsfc.num_completed_vnf, gsfc.vnf_sizes[gsfc.num_completed_vnf])
-            #
-            # for gserver in self.gserver_list:
-            #     if gserver.queue_TSL:
-            #         transmit_completed_gsfc_ids = gserver.transmit_TSL_gsfcs(self.gsfc_list, self.sat_list) # 다시 돌아옴 -> sd_satellite_path 대로 전송
-            #
-            #         for gsfc_id in transmit_completed_gsfc_ids:
-            #             gsfc = self.gsfc_list[gsfc_id]
-            #             remain_path = gsfc.get_remain_path(mode=mode)
-            #             # TODO NEW! processed_satellite_path의 마지막에 'dst'가 있는지
-            #             if remain_path == []:
-            #                 satellite_path_attr = f"{mode}_satellite_path"
-            #                 satellite_path = getattr(gsfc, satellite_path_attr, [])
-            #
-            #                 was_dst = self.has_dst_tag(satellite_path[-1][1])
-            #                 if was_dst:
-            #                     setattr(gsfc, f"{mode}_succeed", True)
-            #                     # print(f"[PATH LOG] GSFC {gsfc.id} on Sat {self.id}: Destination reached. Success.")
-            #
-            #             sat_id = remain_path[0][0]
-            #             next_sat = self.sat_list[sat_id]
-            #             # print(f"[TRANS COMPLETE] Gserver {gserver.id} to sat {sat_id}: GSFC {gsfc.id} 전송 완료. Handover 시작.")
-            #
-            #             next_function = remain_path[0][1]
-            #             is_vnf = self.has_vnf_tag(next_function)
-            #
-            #             if is_vnf:
-            #                 vnf_id = gsfc.num_completed_vnf  # vnf 종류가 아닌, 현 gsfc에서 실행되는 vnf 순서
-            #                 next_sat.add_to_process_queue(gsfc.id, vnf_id, gsfc.vnf_sizes[vnf_id])
-            #             else:  # --(아니오)--> 다음 위성 transmitting queue에 추가
-            #                 processed_path_attr = f"{mode}_processed_satellite_path"
-            #                 current_processed_path = getattr(gsfc, processed_path_attr)
-            #                 current_processed_path.append(remain_path[0])
-            #
-            #                 next_sat.add_to_transmit_queue(gsfc, mode=mode)
-            #
-            # # TODO. sat list에서 sat id가 오름차순이면 한번에 경로가 처리됨
-            # for sat in self.sat_list:
-            #     if any(q for q in sat.queue_ISL):
-            #         transmit_completed_gsfc_ids = sat.transmit_gsfcs(self.gsfc_list, mode=mode)
-            #
-            #         # 다음 vnf 여부 확인
-            #         for gsfc_id in transmit_completed_gsfc_ids:
-            #             gsfc = self.gsfc_list[gsfc_id]
-            #             # print(f"[TRANS COMPLETE] Sat {sat.id}: GSFC {gsfc.id} 전송 완료. Handover 시작.")
-            #
-            #             remain_path = gsfc.get_remain_path(mode=mode)
-            #             # TODO NEW! processed_satellite_path의 마지막에 'dst'가 있는지
-            #             if remain_path == []:
-            #                 satellite_path_attr = f"{mode}_satellite_path"
-            #                 satellite_path = getattr(gsfc, satellite_path_attr, [])
-            #
-            #                 was_dst = self.has_dst_tag(satellite_path[-1][1])
-            #                 if was_dst:
-            #                     setattr(gsfc, f"{mode}_succeed", True)
-            #                     # print(f"[PATH LOG] GSFC {gsfc.id} on Sat {self.id}: Destination reached. Success.")
-            #
-            #             next_sat_id = remain_path[0][0]
-            #             next_sat = self.sat_list[next_sat_id]
-            #             next_function = remain_path[0][1] if len(remain_path) > 1 else None
-            #             is_vnf = self.has_vnf_tag(next_function)
-            #
-            #             if is_vnf:
-            #                 vnf_id = gsfc.num_completed_vnf  # vnf 종류가 아닌, 현 gsfc에서 실행되는 vnf 순서
-            #                 if vnf_id >= len(gsfc.vnf_sizes):
-            #                     print(f"wftwftwftwwwwwww gsfc_id: {gsfc.id}, vsg_path: {self.vsg_path[gsfc.id]} gsfc_satellite_path: {gsfc.noname_satellite_path} gsfc_processed: {gsfc.noname_processed_satellite_path}")
-            #
-            #                 next_sat.add_to_process_queue(gsfc.id, vnf_id, gsfc.vnf_sizes[vnf_id])
-            #             else:  # --(아니오)--> 다음 위성 transmitting queue에 추가
-            #                 processed_path_attr = f"{mode}_processed_satellite_path"
-            #                 current_processed_path = getattr(gsfc, processed_path_attr)
-            #                 current_processed_path.append(remain_path[0])
-            #
-            #                 next_sat.add_to_transmit_queue(gsfc, mode=mode)
+            # gsfc 생성
+            if t <= NUM_ITERATIONS:
+                self.generate_gsfc(NUM_GSFC, vnf_size_mode)
+            # gsfc 경로 설정 (새로 생성된 gsfc)
+            for gsfc in self.gsfc_list[new_gsfc_id_start:]:
+                # print(f"[GSFC GENERATION] Time {t} Mode {mode}: GSFC {gsfc.id} 생성 완료. 경로 탐색 시작.")
+
+                if mode == "basic":
+                    self.set_gsfc_flow_rule(gsfc)
+                    self.set_vsg_path(gsfc)
+                    # TODO 3. vsg path와 현재 vsg id 넘겨주기 (=> 다음 VSG까지의 경로 생성)
+                    self.set_satellite_path(gsfc)
+                    # print(f"[PATH LOG] GSFC {gsfc.id}: BASIC VSG 경로 설정 완료. Path: {gsfc.basic_satellite_path}")
+
+                elif "noname" in mode:
+                    self.set_gsfc_flow_rule(gsfc)
+                    self.set_vsg_path(gsfc)
+                    self.set_satellite_path_noname(gsfc, mode)
+                    # print(f"[GSFC GENERATION] Time {t} Mode {mode}: GSFC {gsfc.id} 생성 완료. 경로 탐색 시작.")
+
+                elif mode == "dd":
+                    if IS_PROPOSED:
+                        # proposed
+                        self.proposed_find_satellite_path(gsfc)
+                        # print(f"[PATH LOG] GSFC {gsfc.id}: PROPOSED DD 경로 설정 완료. Path: {gsfc.dd_satellite_path}")
+                    else:
+                        # DD
+                        self.find_shortest_satellite_vnf_path(gsfc)  # vsg_path 없이 satellite_path 생성
+                        # print(f"[PATH LOG] GSFC {gsfc.id}: DD 경로 설정 완료. Path: {gsfc.dd_satellite_path}")
+
+                elif mode == "sd":
+                    if IS_PROPOSED:
+                        # proposed
+                        self.advanced_proposed_find_satellite_path(gsfc)
+                        # print(f"[PATH LOG] GSFC {gsfc.id}: PROPOSED SD 경로 설정 완료. Path: {gsfc.sd_satellite_path}")
+                    else:
+                        # SD 경로 생성
+                        self.find_shortest_satellite_path_between_src_dst(gsfc)
+                        # print(f"[PATH LOG] GSFC {gsfc.id}: SD 경로 설정 완료. Path: {gsfc.sd_satellite_path}")
+
+                ## 첫 위치 설정
+                satellite_path_attr = f"{mode}_satellite_path"
+                current_satellite_path = getattr(gsfc, satellite_path_attr)
+
+                first_sat_id, first_vnf = current_satellite_path[0]
+                first_sat = self.sat_list[first_sat_id]
+                is_vnf = self.has_vnf_tag(first_vnf)
+                # VNF 여부에 따라 process queue, transmit queue에 추ㅏㄱ
+                if is_vnf:  # --(예)--> 해당 위성 processing queue에 추가 (gsfc id, vnf id, vnf size)
+                    vnf_id = gsfc.num_completed_vnf  # vnf 종류가 아닌, 현 gsfc에서 실행되는 vnf 순서
+                    first_sat.add_to_process_queue(gsfc.id, vnf_id, gsfc.vnf_sizes[vnf_id])
+                    # print(f"[QUEUE LOG] GSFC {gsfc.id} -> Sat {first_sat_id}: PROC Queue 진입 (VNF {vnf_id}). Size: {gsfc.vnf_sizes[vnf_id]}.")
+                else:  # --(아니오)--> 해당 위성 transmitting queue에 추가 (gsfc id, vnf size), 해당 gsfc의 transmitting 변수 True로 설정
+                    # 해당 gsfc의 다음 위성으로의 경로 찾기 + isl link queue 추가
+                    processed_path_attr = f"{mode}_processed_satellite_path"
+                    current_processed_path = getattr(gsfc, processed_path_attr)
+                    current_processed_path.append(current_satellite_path[0])
+                    first_sat.add_to_transmit_queue(gsfc, mode=mode)
+                new_gsfc_id_start += 1
+
+            # 종료 시점 파악 #
+            # 모든 gsfc가 success or dropped이 될 때까지 #
+            all_completed = True
+            if self.gsfc_list:
+                for gsfc in self.gsfc_list:
+                    succeed_attr = f"{mode}_succeed"
+                    dropped_attr = f"{mode}_dropped"
+
+                    if not getattr(gsfc, succeed_attr, False) and not getattr(gsfc, dropped_attr, False):
+                        all_completed = False
+                        break
+            else:
+                # gsfc가 아직 하나도 생성되지 않았다면, 루프를 계속 진행합니다 (GSFC 생성 시간 t <= 40 가정)
+                all_completed = False
+
+            if all_completed:  # GSFC 생성이 끝난 후 (t > 40), 모든 GSFC가 완료되면 루프 종료
+                print("\n*** 모든 GSFC가 succeed 또는 dropped 상태로 완료되었습니다. 시뮬레이션을 종료합니다. ***")
+                break
+
+            for gsfc in self.gsfc_list:
+                if gsfc.noname_succeed:
+                    continue
+                else:
+                    remain_path = gsfc.get_remain_path(mode=mode)
+                    if len(remain_path) < 1:
+                        cur_sat_id = gsfc.noname_processed_satellite_path[-1][0]
+                        cur_sat = self.sat_list[cur_sat_id]
+
+                        # print(f"[PATH LOG] time {t} GSFC {gsfc.id} on Node {cur_sat.id} in VSG {cur_sat.current_vsg_id}: Destination reached. Success.")
+
+                        self.set_satellite_path_noname(gsfc, mode)
+                        cur_sat.add_to_transmit_queue(gsfc, mode=mode)
+
+            # TODO 3. mMTC SFC 처리 로직 별도로 필요. 매 time마다 dst_vsg에 도착했는지 확인 --(YES)-->vnf도 처리 완료? --(YES)-->succeed. --(NO)-->지상국으로 내려서 처리.
+            # TODO 3. reassign을 통해 mMTC SFC가 있는 위성이 vnf 처리 가능 상태가 되면 처리하기.
+
+            ## processing 로직
+            # processing queue가 있는 gserver 리스트 추출
+            for gserver in self.gserver_list:
+                if gserver.process_queue:
+                    if (mode == "dd") or (mode == "basic"): #호옥쉬나~
+                        print(f"[ERROR] what??????? gserver activate in dd?????")
+                        return
+
+                    # print(f"[PROCESSING START] Time {t}: {gserver.id} 지상국에서 VNF 처리 시작.")
+                    gserver.process_vnfs(self.gsfc_list, mode=mode, processing_rate=gs_data_rate)
+
+            # processing queue가 있는 위성 리스트 추출 - # Option 1. 위성마다 한 번에 실행할 수 있는 vnf 개수 설정
+            for sat in self.sat_list:
+                if sat.process_queue:
+                    # print(f"[PROCESSING START] Time {t}: {sat.id} 위성에서 VNF 처리 시작.")
+                    sat.process_vnfs(self.gsfc_list, mode=mode, processing_rate=sat_data_rate)
+
+            ## tx, prop 로직
+            for sat in self.sat_list:
+                if sat.queue_TSL:
+                    # print(f"[TRANSMISSION START] Time {t}: {sat.id} 위성에서 TSL 전송 시작.")
+                    transmit_completed_gsfc_ids = sat.transmit_TSL_gsfcs(self.gsfc_list, mode=mode)
+
+                    for gsfc_id in transmit_completed_gsfc_ids: # gserver로 전송 완료 --> gserver의 process queue에 넣음
+                        gsfc = self.gsfc_list[gsfc_id]
+                        gserver = gsfc.gserver
+                        # print(f"[TRANS COMPLETE] Sat {sat.id} to gserver {gserver.id}: GSFC {gsfc.id} 전송 완료. Handover 시작.")
+
+                        gserver.add_to_process_queue(gsfc.id, gsfc.num_completed_vnf, gsfc.vnf_sizes[gsfc.num_completed_vnf])
+
+            for gserver in self.gserver_list:
+                if gserver.queue_TSL:
+                    transmit_completed_gsfc_ids = gserver.transmit_TSL_gsfcs(self.gsfc_list, self.sat_list) # 다시 돌아옴 -> sd_satellite_path 대로 전송
+
+                    for gsfc_id in transmit_completed_gsfc_ids:
+                        gsfc = self.gsfc_list[gsfc_id]
+                        remain_path = gsfc.get_remain_path(mode=mode)
+
+                        if remain_path == []:
+                            satellite_path_attr = f"{mode}_satellite_path"
+                            satellite_path = getattr(gsfc, satellite_path_attr, [])
+
+                            was_dst = self.has_dst_tag(satellite_path[-1][1])
+                            if was_dst:
+                                setattr(gsfc, f"{mode}_succeed", True)
+                                # print(f"[PATH LOG] GSFC {gsfc.id} on Sat {self.id}: Destination reached. Success.")
+
+                        sat_id = remain_path[0][0]
+                        next_sat = self.sat_list[sat_id]
+                        # print(f"[TRANS COMPLETE] Gserver {gserver.id} to sat {sat_id}: GSFC {gsfc.id} 전송 완료. Handover 시작.")
+
+                        next_function = remain_path[0][1]
+                        is_vnf = self.has_vnf_tag(next_function)
+
+                        if is_vnf:
+                            vnf_id = gsfc.num_completed_vnf  # vnf 종류가 아닌, 현 gsfc에서 실행되는 vnf 순서
+                            next_sat.add_to_process_queue(gsfc.id, vnf_id, gsfc.vnf_sizes[vnf_id])
+                        else:  # --(아니오)--> 다음 위성 transmitting queue에 추가
+                            processed_path_attr = f"{mode}_processed_satellite_path"
+                            current_processed_path = getattr(gsfc, processed_path_attr)
+                            current_processed_path.append(remain_path[0])
+
+                            next_sat.add_to_transmit_queue(gsfc, mode=mode)
+
+            # TODO. sat list에서 sat id가 오름차순이면 한번에 경로가 처리됨
+            for sat in self.sat_list:
+                if any(q for q in sat.queue_ISL):
+                    transmit_completed_gsfc_ids = sat.transmit_gsfcs(self.gsfc_list, mode=mode)
+
+                    # 다음 vnf 여부 확인
+                    for gsfc_id in transmit_completed_gsfc_ids:
+                        gsfc = self.gsfc_list[gsfc_id]
+                        # print(f"[TRANS COMPLETE] Sat {sat.id}: GSFC {gsfc.id} 전송 완료. Handover 시작.")
+
+                        remain_path = gsfc.get_remain_path(mode=mode)
+                        if remain_path == []:
+                            satellite_path_attr = f"{mode}_satellite_path"
+                            satellite_path = getattr(gsfc, satellite_path_attr, [])
+
+                            was_dst = self.has_dst_tag(satellite_path[-1][1])
+                            if was_dst:
+                                setattr(gsfc, f"{mode}_succeed", True)
+                                # print(f"[PATH LOG] GSFC {gsfc.id} on Sat {self.id}: Destination reached. Success.")
+
+                        next_sat_id = remain_path[0][0]
+                        next_sat = self.sat_list[next_sat_id]
+                        next_function = remain_path[0][1] if len(remain_path) > 1 else None
+                        is_vnf = self.has_vnf_tag(next_function)
+
+                        if is_vnf:
+                            vnf_id = gsfc.num_completed_vnf  # vnf 종류가 아닌, 현 gsfc에서 실행되는 vnf 순서
+                            if vnf_id >= len(gsfc.vnf_sizes):
+                                print(f"wftwftwftwwwwwww gsfc_id: {gsfc.id}, vsg_path: {self.vsg_path[gsfc.id]} gsfc_satellite_path: {gsfc.noname_satellite_path} gsfc_processed: {gsfc.noname_processed_satellite_path}")
+
+                            next_sat.add_to_process_queue(gsfc.id, vnf_id, gsfc.vnf_sizes[vnf_id])
+                        else:  # --(아니오)--> 다음 위성 transmitting queue에 추가
+                            processed_path_attr = f"{mode}_processed_satellite_path"
+                            current_processed_path = getattr(gsfc, processed_path_attr)
+                            current_processed_path.append(remain_path[0])
+
+                            next_sat.add_to_transmit_queue(gsfc, mode=mode)
 
             # 위성 이동
             for sat in self.sat_list:
@@ -2340,6 +2410,7 @@ class Simulation:
                             inconsistent_vsgs[vsg].append(vnf)
                             break
                     if inconsistent_vsgs[vsg]:
+                        # TODO 2. 해당 VSG 내 위성들에 대해서, 가장 적은 load를 가지고 있는 VNF 종류 및 해당 위성 id 찾기, 더 이상 처리 못하게 된 sfc는 다른 위성으로 포워딩
                         self.reassign_vnfs_to_satellite(vsg)
                         print(f"[REASSIGN] time {t} VSG {vsg.id}, satellite with vnf {(sat.id for sat in vsg.satellites if sat.vnf_list is not [])}")
 
