@@ -606,23 +606,7 @@ class Simulation:
                 src_vsg_id = src_vsg.id
                 dst_vsg_id = src_vsg_id
 
-                # 2. 각 VNF가 포함된 VSG 식별
-                vnf_to_vsg = {}
-                for vnf in vnf_sequence:
-                    candidate_vsgs = [vsg for vsg in self.vsgs_list if vnf in vsg.assigned_vnfs]
-                    if not candidate_vsgs:
-                        continue
-
-                    distances = []
-                    for vsg in candidate_vsgs:
-                        distance = nx.shortest_path_length(self.vsg_G, source=src_vsg, target=vsg)
-                        distances.append((vsg, distance))
-                    distances.sort(key=lambda x: x[0])
-                    selected_vsg = distances[0][1]
-
-                    vnf_to_vsg[vnf] = selected_vsg.id
-            elif sfc_type_idx == 0: #eMBB
-                # 1. src_vsg를 무작위로 선택
+            else:
                 src_vsg = random.choice(self.vsgs_list)
                 src_vsg_id = src_vsg.id
                 src_lon = src_vsg.center_coords[0]  # (lon, lat)이므로 [0]이 lon
@@ -649,66 +633,7 @@ class Simulation:
                         print(f"[WARNING] Only one VSG found (ID: {src_vsg_id}). Skipping GSFC creation.")
                         continue  # 다음 루프로 이동
 
-                # 2. 각 VNF가 포함된 VSG 식별
-                vnf_to_vsg = {}
-                for vnf in vnf_sequence:
-                    candidate_vsgs = [vsg for vsg in self.vsgs_list if vnf in vsg.assigned_vnfs]
-                    if not candidate_vsgs:
-                        continue
-                    selected_vsg = random.choice(candidate_vsgs)
-                    vnf_to_vsg[vnf] = selected_vsg.id
-
-                # 2. 각 VNF가 포함된 VSG 식별
-                vnf_to_vsg = {}
-                for i, vnf in enumerate(vnf_sequence):
-                    candidate_vsgs = [vsg for vsg in self.vsgs_list if vnf in vsg.assigned_vnfs]
-                    if not candidate_vsgs:
-                        continue
-
-                    distances = []
-                    if i == 0:
-                        prev_vsg = src_vsg
-                    else:
-                        prev_vsg = vnf_sequence[i-1]
-
-                    for vsg in candidate_vsgs:
-                        distance = nx.shortest_path_length(self.vsg_G, source=prev_vsg, target=vsg)
-                        distances.append((vsg, distance))
-                    distances.sort(key=lambda x: x[0])
-                    selected_vsg = distances[0][1]
-
-                    vnf_to_vsg[vnf] = selected_vsg.id
-
-            else: # mMTC
-                src_vsg = random.choice(self.vsgs_list)
-                src_vsg_id = src_vsg.id
-                src_lon = src_vsg.center_coords[0]  # (lon, lat)이므로 [0]이 lon
-
-                # 2. dst_vsg 후보: src_vsg_id를 제외하고, 경도가 src_vsg의 경도보다 큰 VSG들
-                # 이렇게 하면 'src가 왼쪽, dst가 오른쪽' 조건이 만족됩니다.
-                dst_candidates = [
-                    v for v in self.vsgs_list
-                    if v.id != src_vsg_id and v.center_coords[0] > src_lon
-                ]
-
-                if dst_candidates:
-                    # 조건(src_lon < dst_lon)을 만족하는 후보가 있으면 그 중에서 무작위 선택
-                    dst_vsg_id = random.choice(dst_candidates).id
-                else:
-                    # 조건(src_lon < dst_lon)을 만족하는 후보가 없거나, src_vsg 밖에 없는 경우
-                    # (예: src가 가장 동쪽에 있는 VSG인 경우)
-                    # 3. 차선책: src_vsg_id를 제외한 나머지 모든 VSG 중에서 무작위 선택
-                    other_vsgs = [v for v in self.vsgs_list if v.id != src_vsg_id]
-                    if other_vsgs:
-                        dst_vsg_id = random.choice(other_vsgs).id
-                    else:
-                        # VSG가 하나뿐인 경우. 생성을 건너뜁니다.
-                        print(f"[WARNING] Only one VSG found (ID: {src_vsg_id}). Skipping GSFC creation.")
-                        continue  # 다음 루프로 이동
-
-                vnf_to_vsg = {} # store된 위성에서만 처리
-
-            gsfc = GSFC(self.gsfc_id, src_vsg_id, dst_vsg_id, vnf_sequence, vnf_to_vsg, vnf_size_mode)
+            gsfc = GSFC(self.gsfc_id, src_vsg_id, dst_vsg_id, vnf_sequence, sfc_type_idx, vnf_size_mode)
             # print("gsfc list : ", self.gsfc_id, src_vsg_id, vnf_sequence, dst_vsg_id)
             self.gsfc_list.append(gsfc)
             self.gsfc_id += 1

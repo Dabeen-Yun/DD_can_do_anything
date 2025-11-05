@@ -24,7 +24,7 @@ class Main:
     # TODO. data rate이 오를 수록 시간이 더 오래 걸림
     # TODO. proposed dd가 더 오래 걸림
 
-    modes = ['longgest_noname'] # dd, sd, base
+    modes = ['noname'] # dd, sd, base
     proposed_list = [True, False]
 
     csv_path_basic = None
