@@ -16,10 +16,15 @@ LON_STEP = 72
 PARAM_C = 299792458 # [m/s]
 
 # SFC
-VNF_PER_SFC = (1, 2) # 현재 5개 고정
-VNF_SIZE = 1e3 # [bit]  ≈125 KB
+# VNF_PER_SFC = (1, 2) # 현재 5개 고정
+SFC_TYPE_LIST = {
+    0: ['0', '1', '2', '3'], #eMBB
+    1: ['0'], #URLLC
+    2: ['4', '5', '6'], # 'mMTC'
+}
+VNF_SIZE = 1e6 # [bit]  ≈125 KB
 #100 * 8 # [bit] (100 B * 8)
-SFC_SIZE = 5e3 # [bit]  ≈625 KB
+SFC_SIZE = 5e6 # [bit]  ≈625 KB
 #512 * 8 # [bit]
 
 # simulation
@@ -28,8 +33,16 @@ NUM_GSFC = 3 #33 # int(2*1024*1024/SFC_SIZE*8) #[per ms]
 TAU = 1000 # 1ms 단위로 맞추기
 
 # VSG
-VNF_TYPES_PER_VSG = (1, 2) #3
-NUM_VNFS = 1 #10
+# 0: FW
+# 1: DPI
+# 2: UE-UE local forwarder
+# 3: IP-over-IP
+# 4: compress
+# 5: security wrapper
+# 6: egress
+VNF_TYPES_PER_VSG = (0, 7) #3
+
+NUM_VNFS = 2 #10
 
 # satellite capacity
 SAT_QUEUE_SIZE = (SFC_SIZE // 8) * 50 * 8 # [bit] (SFC_SIZE[B] * 50) * 8
