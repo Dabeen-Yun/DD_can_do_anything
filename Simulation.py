@@ -2167,7 +2167,6 @@ class Simulation:
                 if mode == "basic":
                     self.set_gsfc_flow_rule(gsfc)
                     self.set_vsg_path(gsfc)
-                    # TODO 3. vsg path와 현재 vsg id 넘겨주기 (=> 다음 VSG까지의 경로 생성)
                     self.set_satellite_path(gsfc)
                     # print(f"[PATH LOG] GSFC {gsfc.id}: BASIC VSG 경로 설정 완료. Path: {gsfc.basic_satellite_path}")
 
