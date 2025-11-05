@@ -505,21 +505,125 @@ class Simulation:
                 self.vsgs_list[vid].satellites = cell_sats
                 vid += 1
 
+    # Simulation.py (Simulation 클래스 내부)
+
+    def get_satellite_load(self, sat):
+        """
+        위성(sat)의 process_queue에 쌓여있는 VNF 종류별 패킷 사이즈(로드)를 계산합니다.
+
+        :param sat: Satellite 객체
+        :return: VNF 종류별 로드 딕셔너리(dict)
+        """
+        # VNF 종류별 로드를 저장할 딕셔너리: {'vnf1': load, 'vnf2': load, ...}
+        vnf_load = {}
+
+        # 큐의 각 항목은 [gsfc_id, vnf_idx, vnf_size] 형식
+        for item in sat.process_queue:
+            if len(item) < 3: continue
+
+            gsfc_id = item[0]
+            vnf_idx = item[1]
+            vnf_size = item[2]
+
+            try:
+                # 1. GSFC 객체와 VNF Sequence를 사용하여 VNF 종류 확인
+                gsfc = self.gsfc_list[gsfc_id]
+                # vnf_sequence가 SFC의 VNF 종류를 저장하는 리스트라고 가정
+                vnf_kind = gsfc.vnf_sequence[vnf_idx]
+
+            except IndexError:
+                # gsfc_id나 vnf_idx가 유효하지 않은 경우 (데이터 불일치)
+                continue
+
+            if isinstance(vnf_size, (int, float)):
+                if vnf_kind not in vnf_load:
+                    vnf_load[vnf_kind] = 0
+
+                vnf_load[vnf_kind] += vnf_size
+
+            # VNF 종류별 전체 로드 딕셔너리 반환
+            return vnf_load
+
     def reassign_vnfs_to_satellite(self, vsg):
+        # TODO 2. 해당 VSG 내 위성들에 대해서, 가장 적은 load를 가지고 있는 VNF 종류 및 해당 위성 id 찾기, 더 이상 처리 못하게 된 sfc는 다른 위성으로 포워딩
+
         for vnf in vsg.assigned_vnfs:
-            has_vnf = any(sat.vnf_list == vnf for sat in vsg.satellites)
+            has_vnf = any(vnf in sat.vnf_list for sat in vsg.satellites)
             if has_vnf:
                 continue
 
-            sorted_sats = sorted(vsg.satellites, key=lambda s: -s.vsg_enter_time)
+            # ----------------------------------------------------------------------
+            # 🎯 [우선 순위 1]: VNF 최대 개수 미만인 위성에게 할당
+            # ----------------------------------------------------------------------
+            capacity_candidate = []
+            for sat in vsg.satellites:
+                # 1. VNF 최대 개수(3) 미만인 위성
+                if len(sat.vnf_list) < NUM_VNFS:
+                    capacity_candidate.append(sat)
 
-            for sat in sorted_sats:
-                if sat.vnf_list in vsg.assigned_vnfs:
-                    continue
+            if capacity_candidate:
+                # VNF 슬롯이 비어있는 위성에게 할당하고 다음 VNF로 넘어갑니다.
+                selected_sat = random.choice(capacity_candidate)
+                selected_sat.vnf_list.append(vnf)
+                print(f"[REASSIGN] VNF **{vnf}** assigned to Sat **{selected_sat.id}** (Simple Capacity Check: {len(selected_sat.vnf_list)}/{MAX_VNF_CAPACITY}).")
+                continue  # 다음 vnf로 넘어감
 
-                # TODO 2. append? 몇 개까지? -> 3개까지
-                sat.vnf_list.append(vnf)
-                break
+            # ----------------------------------------------------------------------
+            # 🎯 [우선 순위 2]: VNF 슬롯이 가득 찼거나 없으므로, 로드 밸런싱을 통해 할당
+            # ----------------------------------------------------------------------
+            # VSG 내 모든 위성 중 가장 로드가 적은 위성을 찾습니다.
+            min_overall_load = float('inf')
+            best_sat = None
+            best_vnf_kind_in_sat = None
+
+            for sat in vsg.satellites:
+                # 2-1. 위성(sat)의 VNF 종류별 로드 딕셔너리를 가져옵니다.
+                vnf_loads_dict = self.get_satellite_load(sat)
+
+                # 2-2. 해당 위성 내에서 VSG에 할당되지 않은 VNF 중 최소 로드를 찾기
+                min_vnf_load_in_sat = float('inf')
+                min_vnf_kind_in_sat = None
+
+                is_processed = False
+                for vnf_kind, load in vnf_loads_dict.items():
+                    # VSG에 할당된 VNF는 무시하고 (nothing), 할당되지 않은 VNF만 검사
+                    if vnf_kind not in vsg.assigned_vnfs:
+                        is_processed = True
+                        if load < min_vnf_load_in_sat:
+                            min_vnf_load_in_sat = load
+                            min_vnf_kind_in_sat = vnf_kind
+
+                # # 2-3. (VSG에 할당되지 않은 VNF가 전혀 없는 경우도 처리)
+                # if not is_processed:
+                #     # 모든 VNF가 할당된 VNF이거나 큐가 비어있는 경우
+                #     min_vnf_load_in_sat = 0.0
+                #     min_vnf_kind_in_sat = "N/A (Empty/Assigned Only)"
+                # elif min_vnf_load_in_sat == float('inf'):
+                #     # 큐는 있는데, 모든 VNF가 assigned_vnfs에 포함된 경우
+                #     min_vnf_load_in_sat = 0.0  # 필터링된 로드는 0
+                #     min_vnf_kind_in_sat = "N/A (Filtered Out)"
+
+                # 2-4. 전 VSG를 통틀어 가장 적은 큐 로드를 가진 쌍을 갱신
+                # (min_vnf_load_in_sat는 VSG에 할당되지 않은 VNF 중 최소 로드임)
+                if min_vnf_load_in_sat < min_overall_load:
+                    min_overall_load = min_vnf_load_in_sat
+                    best_sat = sat
+                    best_vnf_kind_in_sat = min_vnf_kind_in_sat
+
+            # 3. 할당 가능한 위성이 있는지 확인
+            if best_sat is None:
+                continue
+
+                # 4. 가장 로드가 적은 위성(best_sat)에 VNF 할당 (재할당 로직 실행)
+            selected_sat = best_sat
+            selected_sat.vnf_list.append(vnf)
+
+            # 5. 재할당 정보 출력
+            print(f"[REASSIGN] VNF **{vnf}** assigned to Sat **{selected_sat.id}** in VSG **{vsg.id}**.")
+            print(
+                f"           Selection Criterion: Found minimum queue process (Load: **{min_overall_load:.2f}** bytes) across the VSG.")
+            print(
+                f"           The least loaded VNF Queue was **{best_vnf_kind_in_sat}** on Sat **{selected_sat.id}** (Filtering out VSG {vsg.id}'s assigned VNFs).")
 
     def supposed_reassign_vnfs_to_satellite(self, vsgs_to_reassign, alpha=0.5):
         for vsg in vsgs_to_reassign:
@@ -2097,6 +2201,7 @@ class Simulation:
 
                 elif "noname" in mode:
                     self.set_gsfc_flow_rule(gsfc)
+                    # self.set_vsg_path_noname?
                     self.set_vsg_path(gsfc)
                     self.set_satellite_path_noname(gsfc, mode)
                     # print(f"[GSFC GENERATION] Time {t} Mode {mode}: GSFC {gsfc.id} 생성 완료. 경로 탐색 시작.")
