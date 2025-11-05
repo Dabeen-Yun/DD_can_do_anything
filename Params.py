@@ -42,7 +42,7 @@ TAU = 1000 # 1ms 단위로 맞추기
 # 6: egress
 VNF_TYPES_PER_VSG = (0, 7) #3
 
-NUM_VNFS = 2 #10
+NUM_VNFS = 5 #10
 
 # satellite capacity
 SAT_QUEUE_SIZE = (SFC_SIZE // 8) * 50 * 8 # [bit] (SFC_SIZE[B] * 50) * 8
