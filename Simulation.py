@@ -2146,6 +2146,17 @@ class Simulation:
             return 'dst' in x.lower()
         return False
 
+    def set_initial_vnf(self):
+        # 전체 위성 중 80%만 미리 셋팅
+        vnf_set_sats = sorted(random.sample(range(0,NUM_SATELLITES), int(NUM_SATELLITES*0.8)))
+        for sat in self.sat_list:
+            if sat.id == vnf_set_sats:
+                # 3개 이상 탑재 (최대 개수는 넘기지 않도록)
+                vnf_per_sat = random.randint(3,NUM_VNFS) # 흠...
+                vnfs = sorted(random.sample(range(*VNF_TYPES_PER_VSG), vnf_per_sat))
+                sat.vnf_list = vnfs
+
+
     def simulation_proceeding(self, mode='dd', data_processing_rate_pair=(10, 1000), proposed=True, results_dir=None):
         if proposed is None:
             IS_PROPOSED = True
@@ -2166,6 +2177,7 @@ class Simulation:
         self.set_constellation(NUM_SATELLITES, NUM_ORBITS)  # 위성 위치 초기화
         self.initial_vsg_regions()  # VSG 영역, VSG 내 위성 및 지상국 초기화\
         # TODO 1. 각 위성 당 탑재 가능 VNF 수: 3개 이상, 네트워크 내 80% 이상은 vnf를 탑재하고 있을 것
+        self.set_initial_vnf()
         self.initial_vnfs_to_vsgs()  # VSG 당 VNF 할당
 
         # 1-2. congestion 위성 설정
