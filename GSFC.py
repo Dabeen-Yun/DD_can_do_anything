@@ -2,10 +2,10 @@ import random
 from Params import *
 
 class GSFC:
-    def __init__(self, gsfc_id, src_vsg_id, dst_vsg_id, vnf_sequence, vnf_to_vsg, mode="VSG"):
+    def __init__(self, gsfc_id, src_vsg_id, dst_vsg_id, vnf_sequence, sfc_type_idx, mode="VSG"):
         self.id = gsfc_id
         self.vnf_sequence = vnf_sequence
-        self.vnf_to_vsg = vnf_to_vsg # 각 VNF가 포함된 VSG
+        self.sfc_type_idx = sfc_type_idx
         self.src_vsg_id = src_vsg_id
         self.dst_vsg_id = dst_vsg_id
         self.vnf_sizes = [] #value: total vnf sizes [bit]
