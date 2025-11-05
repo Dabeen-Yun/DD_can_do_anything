@@ -111,7 +111,6 @@ class Gserver:
                 was_dst = self.has_dst_tag(satellite_path[-1][1])
                 if was_dst:
                     setattr(gsfc, f"{mode}_succeed", True)
-                    # print(f"[PATH LOG] GSFC {gsfc.id} on Sat {self.id}: Destination reached. Success.")
                 return
 
             next_sat_id = remain_sat_path[0][0]
@@ -183,7 +182,7 @@ class Gserver:
             is_completed = gsfc.processing_vnf(power_per_vnf, mode=mode)
 
             if is_completed:
-                print(f"[P/ROCESSING COMPLETE] Gserver {self.id}: GSFC {gsfc.id} SFC 처리 완료. 다음 홉으로 포워딩.")
+                print(f"[PROCESSING COMPLETE] Gserver {self.id}: GSFC {gsfc.id} SFC 처리 완료. 다음 홉으로 포워딩.")
                 completed_gsfc_id.append(queue_index)
                 self.add_to_TSL_queue(gsfc, mode=mode)
             else:

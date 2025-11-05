@@ -176,30 +176,24 @@ class Satellite:
         phase = (2 * np.pi * self.y) / self.spo
         self.lat = 90 * np.sin(phase)  # POLAR_LATITUDE * np.sin(phase)
 
-    def time_tic(self, delta_time=1): # 1s 마다
+    def time_tic(self, delta_time=1): # 1ms 마다
         self.time += delta_time
 
-        orbital_period_s = SATELLITE_ORBITAL_PERIOD # sec->ms 변환
+        orbital_period_ms = SATELLITE_ORBITAL_PERIOD * 1000 # sec->ms 변환
 
         # 궤도 주기 계산 (초당 360도 회전)
-        mean_motion_deg_per_s = 360 / orbital_period_s
+        mean_motion_deg_per_ms = 360 / orbital_period_ms
 
         # 위성의 초기 위상 차이 (경도 기준)
         init_lon = (self.x * self.orbit_spacing_deg + self.phasing_offset_deg(self.y)) % 360
 
         # 시간에 따라 경도 업데이트
-        self.lon = (init_lon + mean_motion_deg_per_s * self.time) % 360
+        self.lon = (init_lon + mean_motion_deg_per_ms * self.time) % 360
 
         # 위도는 경사 궤도를 따라 sin 형태로 주기적 움직임
         # 전체 궤도 주기 90분 기준으로 위도 변화 (위상은 y에 따라 달라짐)
         phase = 2 * np.pi * self.y / self.spo
-        self.lat = 90 * np.sin(2 * np.pi * self.time / orbital_period_s + phase)
-
-        # self.set_lat_grid()
-
-        # print("constellation (ID, lat, lon):")
-        # for sat in self.sat_list:
-        #     print(f"  [{sat.id:2d}]  lat: {sat.lat:6.2f}°,  lon: {sat.lon:6.2f}°")
+        self.lat = 90 * np.sin(2 * np.pi * self.time / orbital_period_ms + phase)
 
     def add_to_process_queue(self, gsfc_id, vnf_id, vnf_size): #vnf_id: vnf 종류가 아닌, 해당 gsfc에서 실행되는 순서
         self.process_queue.append([gsfc_id, vnf_id, vnf_size])
