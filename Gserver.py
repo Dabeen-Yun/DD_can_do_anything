@@ -63,7 +63,7 @@ class Gserver:
         return round(delay_ms, 2)
 
     def add_to_TSL_queue(self, gsfc, mode='sd'):
-        self.queue_TSL.append([gsfc.id, SFC_SIZE])
+        self.queue_TSL.append([gsfc.id, gsfc.sfc_size])
         setattr(gsfc, f"{mode}_is_transmitting", True)
 
     def transmit_TSL_gsfcs(self, all_gsfc_list, all_sat_list, mode='sd'):
@@ -105,10 +105,10 @@ class Gserver:
             remain_sat_path = gsfc.get_remain_path(mode=mode)
             # TODO NEW! processed_satellite_path의 마지막에 'dst'가 있는지
             if len(remain_sat_path) < 1:
-                satellite_path_attr = f"{mode}_satellite_path"
-                satellite_path = getattr(gsfc, satellite_path_attr, [])
+                processed_satellite_path_attr = f"{mode}_processed_satellite_path"
+                processed_satellite_path = getattr(gsfc, processed_satellite_path_attr, [])
 
-                was_dst = self.has_dst_tag(satellite_path[-1][1])
+                was_dst = self.has_dst_tag(processed_satellite_path[-1][1])
                 if was_dst:
                     setattr(gsfc, f"{mode}_succeed", True)
                 return
@@ -135,7 +135,7 @@ class Gserver:
     def add_to_process_queue(self, gsfc_id, vnf_id, vnf_size):
         self.process_queue.append([gsfc_id, vnf_id, vnf_size])
 
-        print(f"[QUEUE L/OG] Gserver {self.id} | Added GSFC {gsfc_id} (VNF {vnf_id}) to PROC Queue. Size: {vnf_size}")
+        print(f"[QUEUE LOG] Gserver {self.id} | Added GSFC {gsfc_id} (VNF {vnf_id}) to PROC Queue. Size: {vnf_size}")
 
     def pop_from_process_queue(self, idx):
         if 0 <= idx < len(self.process_queue):

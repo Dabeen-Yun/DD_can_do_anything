@@ -195,8 +195,49 @@ class Satellite:
         phase = 2 * np.pi * self.y / self.spo
         self.lat = 90 * np.sin(2 * np.pi * self.time / orbital_period_ms + phase)
 
-    def add_to_process_queue(self, gsfc_id, vnf_id, vnf_size): #vnf_id: vnf 종류가 아닌, 해당 gsfc에서 실행되는 순서
-        self.process_queue.append([gsfc_id, vnf_id, vnf_size])
+    def get_vnf_type(self, vnf_type):
+        vnf_string_to_process = None
+
+        # 1. 입력 형태를 분석하여 'vnf'가 포함된 실제 문자열을 찾습니다.
+        if isinstance(vnf_type, (list, tuple)):
+            # 리스트/튜플에서 'vnf'가 포함된 문자열 찾기
+            for item in vnf_type:
+                if isinstance(item, str) and 'vnf' in item.lower():
+                    vnf_string_to_process = item
+                    break
+        elif isinstance(vnf_type, str) and 'vnf' in vnf_type.lower():
+            # 단일 문자열인 경우
+            vnf_string_to_process = vnf_type
+        else:
+            # 'src', 'dst' 등 VNF가 아닌 경우이거나 VNF 문자열을 찾지 못한 경우
+            vnf_string_to_process = vnf_type
+
+            # 2. VNF 문자열에서 숫자만 추출
+        if isinstance(vnf_string_to_process, str) and 'vnf' in vnf_string_to_process.lower():
+            # 소문자 변환 후 'vnf' 접두사를 빈 문자열로 대체하여 숫자만 남깁니다.
+            # 예: 'vnf0' -> '0', 'VNF10' -> '10'
+            next_vnf_type = vnf_string_to_process.lower().replace('vnf', '')
+
+            # 🚨 참고: VNF 타입이 'vnf0'처럼 숫자만 남는 형태라면,
+            # 아래처럼 숫자가 아닌 모든 문자를 제거하는 정규 표현식이 가장 안전합니다.
+            # next_vnf_type = re.sub(r'\D+', '', vnf_string_to_process)
+        else:
+            # VNF가 아닌 경우 (예: 'src', 'dst')는 원본 문자열을 그대로 사용합니다.
+            next_vnf_type = vnf_string_to_process
+
+        return next_vnf_type
+
+    def add_to_process_queue(self, gsfc, vnf_type=None): #vnf_id: vnf 종류가 아닌, 해당 gsfc에서 실행되는 순서
+        if vnf_type is not None: #mMTC (현 위성에 vnf 탑재 안되어있는데 process queue에 들어온 경우)
+            next_vnf_type = self.get_vnf_type(vnf_type)
+
+            if next_vnf_type in self.vnf_list:
+                self.process_queue.append([gsfc.id, gsfc.num_completed_vnf, gsfc.vnf_sizes[gsfc.num_completed_vnf]])
+                gsfc.is_keeping = False
+            else:
+                gsfc.is_keeping = True
+        else:
+            self.process_queue.append([gsfc.id, gsfc.num_completed_vnf, gsfc.vnf_sizes[gsfc.num_completed_vnf]])
 
         # print(f"[QUEUE LOG] Sat/ {self.id} | Added GSFC {gsfc_id} (VNF {vnf_id}) to PROC Queue. Size: {vnf_size}")
 
@@ -227,7 +268,7 @@ class Satellite:
             gsfc = gsfc_map[gsfc_id]
             # 큐의 VNF 순서와 GSFC의 다음 VNF 순서가 일치하고, 남은 사이즈가 0보다 커야 유효
             if gsfc.num_completed_vnf != vnf_id:
-                print(f"[ERROR] synch xxxxx")
+                print(f"[ERROR] synch xxxxx: gsfc_id {gsfc.id}, num_completed_vnf: {gsfc.num_completed_vnf}, vnf_id: {vnf_id}")
                 continue
 
             # 현재 그 위성에서 처리할 수 있는 gsfc id들과 vnf size 합 구하기
@@ -342,7 +383,7 @@ class Satellite:
 
     def add_to_transmit_queue(self, gsfc, mode='dd'):
         remain_sat_path = gsfc.get_remain_path(mode=mode)
-        # TODO NEW! processed_satellite_path의 마지막에 'dst'가 있는지
+
         if len(remain_sat_path) < 1:
             satellite_path_attr = f"{mode}_satellite_path"
             satellite_path = getattr(gsfc, satellite_path_attr, [])
@@ -362,7 +403,7 @@ class Satellite:
         if link_index != -1:
             # ISL 큐에 추가 및 부하 업데이트
             gsfc_id = gsfc.id
-            gsfc_size = SFC_SIZE # [bit]
+            gsfc_size = gsfc.sfc_size # [bit]
 
             # self.queue_ISL은 list of lists ([queue_ISL_intra_1, ...])
             self.queue_ISL[link_index].append([gsfc_id, gsfc_size])
@@ -382,7 +423,7 @@ class Satellite:
                 if next_is_vnf:  # vnf 다시 수행
                     if gsfc.num_completed_vnf >= 5:
                         print("shshshsh")
-                    self.add_to_process_queue(gsfc.id, gsfc.num_completed_vnf, gsfc.vnf_sizes[gsfc.num_completed_vnf])
+                    self.add_to_process_queue(gsfc, next_vnf)
                     return
                 else:
                     getattr(gsfc, f"{mode}_processed_satellite_path").append(remain_sat_path[0])
@@ -392,7 +433,7 @@ class Satellite:
                 setattr(gsfc, f"{mode}_dropped", True)
 
     def add_to_TSL_queue(self, gsfc, mode='sd'):
-        self.queue_TSL.append([gsfc.id, SFC_SIZE])
+        self.queue_TSL.append([gsfc.id, gsfc.sfc_size])
         setattr(gsfc, f"{mode}_is_transmitting", True)
 
     def transmit_TSL_gsfcs(self, all_gsfc_list, mode='dd'):
