@@ -9,7 +9,9 @@ class GSFC:
         self.src_vsg_id = src_vsg_id
         self.dst_vsg_id = dst_vsg_id
         self.vnf_sizes = [] #value: total vnf sizes [bit]
+        self.sfc_size = sum(self.vnf_sizes)
         self.gserver = None
+        self.is_keeping = False # mMTC 시나리오에서 vnf 처리 가능할 때까지 기다리기 위한 플래그
 
         # ~~ 구현 변수
         self.current_essential_path_id = 0 # 현재 vsg path를 만드는데 사용한 essential vsg idx
@@ -160,7 +162,7 @@ class GSFC:
         # # option 2. 처리된 양에 비례하여 지연 시간 계산
         # self.dd_proc_delay_ms += (processed / processing_power) # *1ms
         # self.sd_proc_delay_ms += (processed / processing_power)  # *1ms
-
+        # id=2에서 문제발생
         if vnf_remaining_size - processed <= 0: # 현 위치에서 vnf 처리 완료
             remain = self.get_remain_path(mode=mode)
             if remain:
@@ -171,7 +173,7 @@ class GSFC:
                 setattr(self, f"{mode}_succed", True)
 
             self.num_completed_vnf += 1
-            # print(f"[PROC LOG] GSFC {self.id} | VNF {self.num_completed_vnf - 1} COMPLETED. Next VNF: {self.num_completed_vnf}")
+            print(f"[PROC LOG] GSFC {self.id} | VNF {self.num_completed_vnf - 1} COMPLETED. Next VNF: {self.num_completed_vnf}")
             return True
         else:
             return False
