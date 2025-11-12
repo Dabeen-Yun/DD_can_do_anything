@@ -120,8 +120,12 @@ class Gserver:
             next_sat = all_sat_list[next_sat_id]
             propagation_delay = self.calculate_TSL_propagation_delay(next_sat)
 
-            gsfc.sd_prop_delay_ms += propagation_delay
-            gsfc.sd_is_transmitting = False
+            delay_attr = f"{mode}_prop_delay_ms"
+            current_delay = getattr(gsfc, delay_attr)
+            setattr(gsfc, delay_attr, current_delay + propagation_delay)
+
+            setattr(gsfc, f"{mode}_is_transmitting", False)
+
             completed_gsfc_ids.append(gsfc.id)
 
             # 다음 위성에게 전달하는 로직은 Main 루프에서 별도로 처리해야 함 (경로 업데이트 등)
