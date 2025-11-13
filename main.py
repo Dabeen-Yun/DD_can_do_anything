@@ -21,9 +21,6 @@ class Main:
 
     # data_rate_pairs = [(100, 200)]
 
-    # TODO. data rate이 오를 수록 시간이 더 오래 걸림
-    # TODO. proposed dd가 더 오래 걸림
-
     modes = ['basic'] # dd, basic, noname
     proposed_list = [False]
 
