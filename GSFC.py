@@ -2,7 +2,7 @@ import random
 from Params import *
 
 class GSFC:
-    def __init__(self, gsfc_id, src_vsg_id, dst_vsg_id, vnf_sequence, sfc_type_idx, mode="VSG"):
+    def __init__(self, gsfc_id, src_vsg_id, dst_vsg_id, vnf_sequence, sfc_type_idx, tolerance_time_ms, mode="VSG"):
         self.id = gsfc_id
         self.vnf_sequence = vnf_sequence
         self.sfc_type_idx = sfc_type_idx
@@ -12,6 +12,7 @@ class GSFC:
         self.sfc_size = sum(self.vnf_sizes)
         self.gserver = None
         self.is_keeping = False # mMTC 시나리오에서 vnf 처리 가능할 때까지 기다리기 위한 플래그
+        self.tolerance_time_ms = tolerance_time_ms # mMTC 시나리오에서 기다릴 수 있는 최대 시간 [ms]
 
         # ~~ 구현 변수
         self.current_essential_path_id = 0 # 현재 vsg path를 만드는데 사용한 essential vsg idx

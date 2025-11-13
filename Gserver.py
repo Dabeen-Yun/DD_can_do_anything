@@ -111,12 +111,12 @@ class Gserver:
                 was_dst = self.has_dst_tag(processed_satellite_path[-1][1])
                 if was_dst:
                     setattr(gsfc, f"{mode}_succeed", True)
-                return
+                return []
 
             next_sat_id = remain_sat_path[0][0]
             if next_sat_id >= NUM_SATELLITES:
                 self.add_to_TSL_queue(gsfc, mode=mode)
-                return
+                return []
             next_sat = all_sat_list[next_sat_id]
             propagation_delay = self.calculate_TSL_propagation_delay(next_sat)
 

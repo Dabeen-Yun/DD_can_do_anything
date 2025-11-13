@@ -21,11 +21,8 @@ class Main:
 
     # data_rate_pairs = [(100, 200)]
 
-    # TODO. data rate이 오를 수록 시간이 더 오래 걸림
-    # TODO. proposed dd가 더 오래 걸림
-
-    modes = ['noname'] # dd, sd, base
-    proposed_list = [True, False]
+    modes = ['basic'] # dd, basic, noname
+    proposed_list = [False]
 
     csv_path_basic = None
     csv_path_dd = None
@@ -59,12 +56,12 @@ class Main:
         #                              out_png_filename="mean_stack_e2e.png"
         #                              )
 
-        plot_mean_e2e_stack_for_pair(pair[0], pair[1],
-                                     csv_paths=[f"./results/{NUM_GSFC}/noname/{pair[0] / 1e6}sat_{pair[1] / 1e6}gs/success_results.csv"],
-                                     labels=["noname"],
-                                     results_root=f"./results/{NUM_GSFC}/plot/{pair[0] / 1e6}sat_{pair[1] / 1e6}gs/",
-                                     out_png_filename="mean_stack_e2e.png"
-                                     )
+        # plot_mean_e2e_stack_for_pair(pair[0], pair[1],
+        #                              csv_paths=[f"./results/{NUM_GSFC}/noname/{pair[0] / 1e6}sat_{pair[1] / 1e6}gs/success_results.csv"],
+        #                              labels=["noname"],
+        #                              results_root=f"./results/{NUM_GSFC}/plot/{pair[0] / 1e6}sat_{pair[1] / 1e6}gs/",
+        #                              out_png_filename="mean_stack_e2e.png"
+        #                              )
 
     # plot_all_mean_stack_e2e_segment_in_mode(data_rate_pairs, 'dd', results_root = f"./results/{NUM_GSFC}/dd/")
     # plot_all_mean_stack_e2e_segment_in_mode(data_rate_pairs, 'sd', results_root = f"./results/{NUM_GSFC}/sd/")

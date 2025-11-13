@@ -129,7 +129,7 @@ class Simulation:
             )
         # print(f"[LOG] Time {t}: Satellite status saved.") # 너무 많은 로그 방지를 위해 주석 처리
 
-    def write_results_csv(self, t, filename, mode='dd', IS_PROPOSED=False):
+    def write_process_csv(self, t, filename, mode='dd', IS_PROPOSED=False):
         self.ensure_results_dir()
         save_path = self.results_dir + filename
 
@@ -138,7 +138,7 @@ class Simulation:
                 try: os.remove(save_path)
                 except Exception as e: print(f"[WARN] remove {save_path} failed: {e}")
 
-        fieldnames = ["t", "gsfc_id", "is_succeed", "is_dropped", "src_vsg", "dst_vsg", "vnf_sequence", "vsg_path", "satellite_path", "processed_satellite_path", "actual_dst_vsg", "successfully_arrived",
+        fieldnames = ["t", "gsfc_id", "is_succeed", "is_dropped", "src_vsg", "dst_vsg", "vnf_sequence", "satellite_path", "processed_satellite_path", "actual_dst_vsg", "successfully_arrived",
                       "hop_count", "propagation_delay_ms", "processing_delay_ms", "queueing_delay_ms","transmission_delay_ms", "e2e_delay_ms"]
 
         # 모드별 속성 이름 설정
@@ -178,7 +178,6 @@ class Simulation:
                 "src_vsg": gsfc.src_vsg_id,
                 "dst_vsg": gsfc.dst_vsg_id,
                 "vnf_sequence": gsfc.vnf_sequence,
-                "vsg_path": self.vsg_path[gsfc.id],
                 "satellite_path": getattr(gsfc, satellite_path, "[]"),
                 "processed_satellite_path": getattr(gsfc, processed_satellite_attr, "[]"),
                 "actual_dst_vsg": dst_vsg,
@@ -197,7 +196,7 @@ class Simulation:
                 row=row
             )
 
-            if is_succeed:
+            if is_succeed or is_dropped:
                 self.csv_gsfc_set.append(gsfc)
 
     def write_success_results_csv(self, filename, mode='dd', IS_PROPOSED=False):
@@ -228,14 +227,89 @@ class Simulation:
         for gsfc in self.gsfc_list:
             is_succeed = getattr(gsfc, succeed_attr)
             processed_satellite_path = getattr(gsfc, processed_satellite_attr, "[]")
-            dst_sat_id = processed_satellite_path[-1][0]
-            dst_sat = self.sat_list[dst_sat_id]
-            dst_vsg = dst_sat.current_vsg_id
+
+            dst_node_id = processed_satellite_path[-1][0]
+            if dst_node_id >= NUM_SATELLITES:
+                physical_node_id = dst_node_id - NUM_SATELLITES
+                dst_node = self.gserver_list[physical_node_id]
+                dst_vsg = dst_node.vsg_id
+            else:
+                dst_node = self.sat_list[dst_node_id]
+                dst_vsg = dst_node.current_vsg_id
 
             if is_succeed:
                 e2e_delay = (getattr(gsfc, prop_attr, float('inf')) + getattr(gsfc, proc_attr, float('inf'))
                              + getattr(gsfc, queue_attr, float('inf')) + getattr(gsfc, trans_attr, float('inf')))
                 is_dropped = getattr(gsfc, dropped_attr)
+
+                row = {
+                    "gsfc_id": gsfc.id,
+                    "is_succeed": True if is_succeed else False,
+                    "is_dropped": True if is_dropped else False,
+                    "src_vsg": gsfc.src_vsg_id,
+                    "dst_vsg": gsfc.dst_vsg_id,
+                    "vnf_sequence": gsfc.vnf_sequence,
+                    "vsg_path": self.vsg_path[gsfc.id],
+                    "satellite_path": getattr(gsfc, satellite_attr, "[]"),
+                    "processed_satellite_path": getattr(gsfc, processed_satellite_attr, "[]"),
+                    "actual_dst_vsg": dst_vsg,
+                    "successfully_arrived": True if gsfc.dst_vsg_id == dst_vsg else False,
+                    "hop_count": getattr(gsfc, hop_attr, float('inf')),
+                    "propagation_delay_ms": getattr(gsfc, prop_attr, float('inf')),
+                    "processing_delay_ms": getattr(gsfc, proc_attr, float('inf')),
+                    "queueing_delay_ms": getattr(gsfc, queue_attr, float('inf')),
+                    "transmission_delay_ms": getattr(gsfc, trans_attr, float('inf')),
+                    "e2e_delay_ms": e2e_delay,
+                }
+
+                self.append_csv_row(
+                    filepath=save_path,
+                    fieldnames=fieldnames,
+                    row=row
+                )
+
+    def write_fail_results_csv(self, filename, mode='dd', IS_PROPOSED=False):
+        self.ensure_results_dir()
+        save_path = self.results_dir + filename
+
+        if os.path.exists(save_path):
+            try: os.remove(save_path)
+            except Exception as e: print(f"[WARN] remove {save_path} failed: {e}")
+
+        fieldnames = ["gsfc_id", "is_succeed", "is_dropped", "src_vsg", "dst_vsg", "vnf_sequence", "vsg_path", "satellite_path", "processed_satellite_path", "actual_dst_vsg", "successfully_arrived",
+                      "hop_count", "propagation_delay_ms", "processing_delay_ms", "queueing_delay_ms","transmission_delay_ms", "e2e_delay_ms"]
+
+        # 모드별 속성 이름 설정
+        succeed_attr = f"{mode}_succeed"
+        dropped_attr = f"{mode}_dropped"
+        satellite_attr = f"{mode}_satellite_path"
+        processed_satellite_attr = f"{mode}_processed_satellite_path"
+        hop_attr = f"{mode}_hop_count"
+        prop_attr = f"{mode}_prop_delay_ms"
+        proc_attr = f"{mode}_proc_delay_ms"
+        queue_attr = f"{mode}_queue_delay_ms"
+        trans_attr = f"{mode}_trans_delay_ms"
+        # e2e_attr = f"{mode}_e2e_delay_ms"
+
+        drop_count = 0
+
+        for gsfc in self.gsfc_list:
+            is_succeed = getattr(gsfc, succeed_attr)
+            is_dropped = getattr(gsfc, dropped_attr)
+            processed_satellite_path = getattr(gsfc, processed_satellite_attr, "[]")
+
+            dst_node_id = processed_satellite_path[-1][0]
+            if dst_node_id >= NUM_SATELLITES:
+                physical_node_id = dst_node_id - NUM_SATELLITES
+                dst_node = self.gserver_list[physical_node_id]
+                dst_vsg = dst_node.vsg_id
+            else:
+                dst_node = self.sat_list[dst_node_id]
+                dst_vsg = dst_node.current_vsg_id
+
+            if is_dropped:
+                e2e_delay = (getattr(gsfc, prop_attr, float('inf')) + getattr(gsfc, proc_attr, float('inf'))
+                             + getattr(gsfc, queue_attr, float('inf')) + getattr(gsfc, trans_attr, float('inf')))
 
                 row = {
                     "gsfc_id": gsfc.id,
@@ -731,48 +805,49 @@ class Simulation:
 
             sfc_type_idx = random.randint(0, 2)
             vnf_sequence = SFC_TYPE_LIST.get(sfc_type_idx)
+            tolerance_time_ms = SFC_TOLERANCE_TIME.get(sfc_type_idx)
 
             # TODO 0. SFC 종류 별 경로 설정 (일단 수정 완. 디버깅 필요)
-            if sfc_type_idx == 1: # uRLLC:
-                # SRC VSG와 DST VSG가 동일하도록
-                src_vsg = random.choice(self.vsgs_list)
-                src_vsg_id = src_vsg.id
-                dst_vsg_id = src_vsg_id
+            # if sfc_type_idx == 5: # uRLLC:
+            #     # SRC VSG와 DST VSG가 동일하도록
+            #     src_vsg = random.choice(self.vsgs_list)
+            #     src_vsg_id = src_vsg.id
+            #     dst_vsg_id = src_vsg_id
+            # else:
+            src_vsg = random.choice(self.vsgs_list)
+            src_vsg_id = src_vsg.id
+            src_lon = src_vsg.center_coords[0]  # (lon, lat)이므로 [0]이 lon
+
+            # 2. dst_vsg 후보: src_vsg_id를 제외하고, 경도가 src_vsg의 경도보다 큰 VSG들
+            # 이렇게 하면 'src가 왼쪽, dst가 오른쪽' 조건이 만족됩니다.
+            dst_candidates = [
+                v for v in self.vsgs_list
+                if v.id != src_vsg_id and v.center_coords[0] > src_lon
+            ]
+
+            if dst_candidates:
+                # 조건(src_lon < dst_lon)을 만족하는 후보가 있으면 그 중에서 무작위 선택
+                dst_vsg_id = random.choice(dst_candidates).id
             else:
-                src_vsg = random.choice(self.vsgs_list)
-                src_vsg_id = src_vsg.id
-                src_lon = src_vsg.center_coords[0]  # (lon, lat)이므로 [0]이 lon
-
-                # 2. dst_vsg 후보: src_vsg_id를 제외하고, 경도가 src_vsg의 경도보다 큰 VSG들
-                # 이렇게 하면 'src가 왼쪽, dst가 오른쪽' 조건이 만족됩니다.
-                dst_candidates = [
-                    v for v in self.vsgs_list
-                    if v.id != src_vsg_id and v.center_coords[0] > src_lon
-                ]
-
-                if dst_candidates:
-                    # 조건(src_lon < dst_lon)을 만족하는 후보가 있으면 그 중에서 무작위 선택
-                    dst_vsg_id = random.choice(dst_candidates).id
+                # 조건(src_lon < dst_lon)을 만족하는 후보가 없거나, src_vsg 밖에 없는 경우
+                # (예: src가 가장 동쪽에 있는 VSG인 경우)
+                # 3. 차선책: src_vsg_id를 제외한 나머지 모든 VSG 중에서 무작위 선택
+                other_vsgs = [v for v in self.vsgs_list if v.id != src_vsg_id]
+                if other_vsgs:
+                    dst_vsg_id = random.choice(other_vsgs).id
                 else:
-                    # 조건(src_lon < dst_lon)을 만족하는 후보가 없거나, src_vsg 밖에 없는 경우
-                    # (예: src가 가장 동쪽에 있는 VSG인 경우)
-                    # 3. 차선책: src_vsg_id를 제외한 나머지 모든 VSG 중에서 무작위 선택
-                    other_vsgs = [v for v in self.vsgs_list if v.id != src_vsg_id]
-                    if other_vsgs:
-                        dst_vsg_id = random.choice(other_vsgs).id
-                    else:
-                        # VSG가 하나뿐인 경우. 생성을 건너뜁니다.
-                        print(f"[WARNING] Only one VSG found (ID: {src_vsg_id}). Skipping GSFC creation.")
-                        continue  # 다음 루프로 이동
+                    # VSG가 하나뿐인 경우. 생성을 건너뜁니다.
+                    print(f"[WARNING] Only one VSG found (ID: {src_vsg_id}). Skipping GSFC creation.")
+                    continue  # 다음 루프로 이동
 
-            gsfc = GSFC(self.gsfc_id, src_vsg_id, dst_vsg_id, vnf_sequence, sfc_type_idx, vnf_size_mode)
+            gsfc = GSFC(self.gsfc_id, src_vsg_id, dst_vsg_id, vnf_sequence, sfc_type_idx, tolerance_time_ms, vnf_size_mode)
             # print("gsfc list : ", self.gsfc_id, src_vsg_id, vnf_sequence, dst_vsg_id)
             self.gsfc_list.append(gsfc)
             self.gsfc_id += 1
 
     # ========= VSG 논문 구현 ========= #
     # 생성된 gsfc를 기반으로 vsg 구성 -> satellite path 구성
-    def set_gsfc_flow_rule(self, gsfc):
+    def set_gsfc_flow_rule(self, gsfc, mode):
         ## gsfc 내 vnf를 기반으로 필수 vsg 설정
         # 1. VNF를 수행할 VSG 리스트
         self.GSFC_flow_rules[gsfc.id] = {}
@@ -795,7 +870,7 @@ class Simulation:
             if not candidate_vsgs: # 해당 VNF를 수행할 VSG가 없음
                 print(f"[ERROR] 1-1 No non-congested VSG found for VNF {vnf}")
                 self.GSFC_flow_rules[gsfc.id] = {}
-                gsfc.basic_dropped = True
+                setattr(gsfc, f"{mode}_dropped", True)
                 return []
 
             try:
@@ -806,7 +881,7 @@ class Simulation:
             except nx.NetworkXNoPath:
                 print(f"[ERROR] 1-2 No path from src VSG to any candidate VSG for VNF {vnf}")
                 self.GSFC_flow_rules[gsfc.id] = {}
-                gsfc.basic_dropped = True
+                setattr(gsfc, f"{mode}_dropped", True)
                 return []
 
             for vsg in hop_sorted:
@@ -818,50 +893,84 @@ class Simulation:
             if not any(entry[0] == vnf for entry in self.GSFC_flow_rules[gsfc.id].values()):
                 print(f"[ERROR] 1-3 No valid VSG selected for VNF {vnf}")
                 self.GSFC_flow_rules[gsfc.id] = {}
-                gsfc.basic_dropped = True
+                setattr(gsfc, f"{mode}_dropped", True)
                 return []
 
         self.GSFC_flow_rules[gsfc.id][index] = ("dst", gsfc.dst_vsg_id)
 
-    def set_vsg_path(self, gsfc):
+    def set_vsg_path(self, gsfc, mode):
         self.vsg_path[gsfc.id] = []
         essential_vsgs = self.GSFC_flow_rules[gsfc.id]
 
-        for i, (key, value) in enumerate(essential_vsgs.items()):
-            if i < len(essential_vsgs) - 1:
-                src_vnf = value[0]  # 첫 번째 요소
-                src_vsg = value[1]  # 두 번째 요소보호되는 속성
-                dst_vnf = essential_vsgs[key + 1][0]  # 다음 항목의 첫 번째 요소
-                dst_vsg = essential_vsgs[key + 1][1]  # 다음 항목의 두 번째 요소
+        items = list(essential_vsgs.items())
+        n = len(items)
+        if n < 1:
+            return
 
-                if i == 0:
-                    if src_vsg == dst_vsg:
-                        self.vsg_path[gsfc.id].append((src_vsg, ("src", f"vnf{dst_vnf}")))
-                        continue
-                elif i == (len(essential_vsgs) - 2):
-                    if src_vsg == dst_vsg:
-                        self.vsg_path[gsfc.id][-1] = (src_vsg, ("dst", f"vnf{src_vnf}"))
-                        continue
+        for i in range(n - 1):
+            _, (src_vnf, src_vsg) = items[i]
+            _, (dst_vnf, dst_vsg) = items[i + 1]
 
-                # src, dst vsg가 첫 번째 vnf, 두 번째 vnf의 vsg와 같다면 합치기
-                try:
-                    sub_path = nx.shortest_path(self.vsg_G, source=src_vsg, target=dst_vsg)
+            try:
+                sub_path = nx.shortest_path(self.vsg_G, source=src_vsg, target=dst_vsg)
+            except nx.NetworkXNoPath:
+                print(f"[ERROR] 2-1 No path between VSG {src_vsg} and {dst_vsg}")
+                setattr(gsfc, f"{mode}_dropped", True)
+                return []
 
-                    if i == 0:
-                        self.vsg_path[gsfc.id].append((src_vsg, (src_vnf)))
+            # 1) 첫 구간이면 시작 VSG + vnf 태그 저장
+            if i == 0:
+                self.vsg_path[gsfc.id].append((src_vsg, src_vnf))
 
-                    for vid in sub_path[1:-1]:
-                        self.vsg_path[gsfc.id].append((vid, (None)))
+            # 2) 중간 VSG들 (None 태그)
+            for vid in sub_path[1:-1]:
+                self.vsg_path[gsfc.id].append((vid, None))
 
-                    if i == (len(essential_vsgs) - 2):
-                        self.vsg_path[gsfc.id].append((sub_path[-1], (dst_vnf)))
-                    else:
-                        self.vsg_path[gsfc.id].append((sub_path[-1], (f"vnf{dst_vnf}")))
+            # 3) 도착 VSG + vnf 태그 저장
+            self.vsg_path[gsfc.id].append((dst_vsg, dst_vnf))
 
-                except nx.NetworkXNoPath:
-                    print(f"[ERROR] 2-1 No path between VSG {src_vsg} and {dst_vsg}")
-                    gsfc.basic_dropped = True
-                    return []
+        # for i, (key, value) in enumerate(essential_vsgs.items()):
+        #     if i < len(essential_vsgs) - 1:
+        #         src_vnf = value[0]  # 첫 번째 요소
+        #         src_vsg = value[1]  # 두 번째 요소보호되는 속성
+        #         dst_vnf = essential_vsgs[key + 1][0]  # 다음 항목의 첫 번째 요소
+        #         dst_vsg = essential_vsgs[key + 1][1]  # 다음 항목의 두 번째 요소
+        #
+        #         if i == 0:
+        #             self.vsg_path[gsfc.id].append((src_vsg, "src"))
+        #             continue
+        #         if i == len(essential_vsgs) - 1:
+        #             self.vsg_path[gsfc.id].append((src_vsg, "dst"))
+        #             continue
+        #         #
+        #         # if i == 0:
+        #         #     if src_vsg == dst_vsg:
+        #         #         self.vsg_path[gsfc.id].append((src_vsg, ("src", f"vnf{dst_vnf}")))
+        #         #         continue
+        #         # elif i == (len(essential_vsgs) - 2):
+        #         #     if src_vsg == dst_vsg:
+        #         #         self.vsg_path[gsfc.id][-1] = (src_vsg, ("dst", f"vnf{src_vnf}"))
+        #         #         continue
+        #
+        #         # src, dst vsg가 첫 번째 vnf, 두 번째 vnf의 vsg와 같다면 합치기
+        #         try:
+        #             sub_path = nx.shortest_path(self.vsg_G, source=src_vsg, target=dst_vsg)
+        #
+        #             if i == 0:
+        #                 self.vsg_path[gsfc.id].append((src_vsg, (src_vnf)))
+        #
+        #             for vid in sub_path[1:-1]:
+        #                 self.vsg_path[gsfc.id].append((vid, (None)))
+        #
+        #             if i == (len(essential_vsgs) - 2):
+        #                 self.vsg_path[gsfc.id].append((sub_path[-1], (dst_vnf)))
+        #             else:
+        #                 self.vsg_path[gsfc.id].append((sub_path[-1], (f"vnf{dst_vnf}")))
+        #
+        #         except nx.NetworkXNoPath:
+        #             print(f"[ERROR] 2-1 No path between VSG {src_vsg} and {dst_vsg}")
+        #             gsfc.basic_dropped = True
+        #             return []
 
     def get_vnf_id_for_list(self, vnf_tag):
         """
@@ -984,199 +1093,188 @@ class Simulation:
 
     # TODO 0. sfc 종류에 맞게 경로 생성 잘 되는지 확인 (mMTC: 중간 경로 없음만 처리하면 될 듯)
     def set_satellite_path_noname(self, gsfc, mode):
+        satellite_path_attr = f"{mode}_satellite_path"
+        satellite_path = getattr(gsfc, satellite_path_attr, [])
+
         if gsfc.id not in self.vsg_path or not self.vsg_path[gsfc.id]:
             print(f"[ERROR] 2-1 ~AGAIN~ No VSG between VSG")
-            gsfc.noname_dropped = True
+            setattr(gsfc, f"{mode}_dropped", True)
             return []
 
-        if gsfc.sfc_type_idx == 1: #mMTC:
-            if gsfc.noname_satellite_path == []:
-                cur_vsg_path_id = gsfc.noname_cur_vsg_path_id
-                src_vsg_id, src_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
-                src_vsg = self.vsgs_list[src_vsg_id]
+        # if gsfc.sfc_type_idx == 2: #mMTC:
+        #     if satellite_path == []:
+        #         cur_vsg_path_id = getattr(gsfc, f"{mode}_cur_vsg_path_id", 0)
+        #         src_vsg_id, src_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
+        #         src_vsg = self.vsgs_list[src_vsg_id]
+        #
+        #         selected_sat = []
+        #
+        #         sat_all_vnfs = [
+        #             sat.id for sat in src_vsg.satellites
+        #             if all(vnf in sat.vnf_list for vnf in gsfc.vnf_sequence)
+        #         ]
+        #
+        #         if sat_all_vnfs:
+        #             # Priority 1 만족: 해당 위성들 중 무작위 선택
+        #             selected_sat = random.choice(sat_all_vnfs)
+        #         else:
+        #             first_vnf = gsfc.vnf_sequence[0]
+        #
+        #             sat_first_vnf = [
+        #                 sat.id for sat in src_vsg.satellites
+        #                 if first_vnf in sat.vnf_list
+        #             ]
+        #
+        #             if sat_first_vnf:
+        #                 # Priority 2 만족: 해당 위성들 중 무작위 선택
+        #                 selected_sat = random.choice(sat_first_vnf)
+        #
+        #         if selected_sat == []:
+        #             selected_sat = random.choice([sat.id for sat in src_vsg.satellites])
+        #
+        #         satellite_path.append([selected_sat, 'src'])
+        #         for vnf in gsfc.vnf_sequence:
+        #             satellite_path.append([selected_sat, f"vnf{vnf}"])
+        #         satellite_path.append([selected_sat, "dst"])
+        #     else:
+        #         print(f"[NO GENERATION] already generation is done in mMTC scenario")
+        # else:
+        if satellite_path == []:
+            cur_vsg_path_id = getattr(gsfc, f"{mode}_cur_vsg_path_id", 0)
+            src_vsg, src_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
 
-                selected_sat = []
-
-                sat_all_vnfs = [
-                    sat.id for sat in src_vsg.satellites
-                    if all(vnf in sat.vnf_list for vnf in gsfc.vnf_sequence)
+            is_vnf_src = self.has_vnf_tag(src_vnf)
+            if is_vnf_src:
+                current_vnf_id = self.get_vnf_id_for_list(src_vnf)
+                candidate_src_sats = [
+                    sat.id for sat in self.vsgs_list[src_vsg].satellites
+                    if current_vnf_id in sat.vnf_list
+                ]
+            else:
+                candidate_src_sats = [
+                    sat.id for sat in self.vsgs_list[src_vsg].satellites
                 ]
 
-                if sat_all_vnfs:
-                    # Priority 1 만족: 해당 위성들 중 무작위 선택
-                    selected_sat = random.choice(sat_all_vnfs)
-                else:
-                    first_vnf = gsfc.vnf_sequence[0]
+            if not candidate_src_sats:
+                print(f"[ERROR] 3-1 No SATELLITE TO SRC")
+                setattr(gsfc, f"{mode}_dropped", True)
+                return []
 
-                    sat_first_vnf = [
-                        sat.id for sat in src_vsg.satellites
-                        if first_vnf in sat.vnf_list
-                    ]
+            # TODO. random choice?
+            src_sat = random.choice(candidate_src_sats)
+            satellite_path.append([src_sat, src_vnf])
 
-                    if sat_first_vnf:
-                        # Priority 2 만족: 해당 위성들 중 무작위 선택
-                        selected_sat = random.choice(sat_first_vnf)
-
-                if selected_sat == []:
-                    selected_sat = random.choice([sat.id for sat in src_vsg.satellites])
-
-                gsfc.noname_satellite_path.append([selected_sat, 'src'])
-                for vnf in gsfc.vnf_sequence:
-                    gsfc.noname_satellite_path.append([selected_sat, f"vnf{vnf}"])
-                gsfc.noname_satellite_path.append([selected_sat, "dst"])
-            else:
-                print(f"[NO GENERATION] already generation is done in mMTC scenario")
         else:
-            if gsfc.noname_satellite_path == []:
-                cur_vsg_path_id = gsfc.noname_cur_vsg_path_id
-                src_vsg, src_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
+            #  TODO src_vsg랑 dst_vsg가 같으면 prev_sat이랑 prev_vnf 추가하고 break
+            prev_sat = gsfc.noname_satellite_path[-1][0]
 
-                is_vnf_src = self.has_vnf_tag(src_vnf)
-                if is_vnf_src:
-                    current_vnf_id = self.get_vnf_id_for_list(src_vnf)
-                    candidate_src_sats = [
-                        sat.id for sat in self.vsgs_list[src_vsg].satellites
-                        if current_vnf_id in sat.vnf_list
-                    ]
-                else:
-                    candidate_src_sats = [
-                        sat.id for sat in self.vsgs_list[src_vsg].satellites
-                    ]
+            cur_vsg_path_id = gsfc.noname_cur_vsg_path_id - 1
+            next_vsg_path_id = gsfc.noname_cur_vsg_path_id
 
-                if not candidate_src_sats:
-                    print(f"[ERROR] 3-1 No SATELLITE TO SRC")
-                    gsfc.noname_dropped = True
-                    return []
+            prev_vsg, prev_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
+            dst_vsg, dst_vnf = self.vsg_path[gsfc.id][next_vsg_path_id]
 
-                # TODO. random choice?
-                src_sat = random.choice(candidate_src_sats)
-                gsfc.noname_satellite_path.append([src_sat, src_vnf])
-
+            is_vnf_src = self.has_vnf_tag(prev_vnf)
+            if is_vnf_src:
+                current_vnf_id = self.get_vnf_id_for_list(prev_vnf)
+                candidate_src_sats = [
+                    sat.id for sat in self.vsgs_list[prev_vsg].satellites
+                    if current_vnf_id in sat.vnf_list
+                ]
             else:
-                #  TODO src_vsg랑 dst_vsg가 같으면 prev_sat이랑 prev_vnf 추가하고 break
-                prev_sat = gsfc.noname_satellite_path[-1][0]
+                candidate_src_sats = [
+                    sat.id for sat in self.vsgs_list[prev_vsg].satellites
+                ]
 
-                cur_vsg_path_id = gsfc.noname_cur_vsg_path_id - 1
-                next_vsg_path_id = gsfc.noname_cur_vsg_path_id
+            if not candidate_src_sats:
+                print(f"[ERROR] 3-1 No SATELLITE TO SRC")
+                gsfc.noname_dropped = True
+                return []
 
-                prev_vsg, prev_vnf = self.vsg_path[gsfc.id][cur_vsg_path_id]
-                dst_vsg, dst_vnf = self.vsg_path[gsfc.id][next_vsg_path_id]
+            is_vnf_dst = self.has_vnf_tag(dst_vnf)
+            if is_vnf_dst:
+                current_vnf_id = self.get_vnf_id_for_list(dst_vnf)
+                candidate_dst_sats = [
+                    sat.id for sat in self.vsgs_list[dst_vsg].satellites
+                    if current_vnf_id in sat.vnf_list
+                ]
+            else:
+                candidate_dst_sats = [
+                    sat.id for sat in self.vsgs_list[dst_vsg].satellites
+                ]
 
-                is_vnf_src = self.has_vnf_tag(prev_vnf)
-                if is_vnf_src:
-                    current_vnf_id = self.get_vnf_id_for_list(prev_vnf)
-                    candidate_src_sats = [
-                        sat.id for sat in self.vsgs_list[prev_vsg].satellites
-                        if current_vnf_id in sat.vnf_list
-                    ]
+            if not candidate_dst_sats:
+                print(f"[ERROR] 3-1 No SATELLITE TO DST")
+                gsfc.noname_dropped = True
+                return []
+
+            if prev_vsg != dst_vsg: # vsg 이동이 필요할 때만 진행
+                src_vsg_sats = [sat.id for sat in self.vsgs_list[prev_vsg].satellites]
+                dst_vsg_sats = [sat.id for sat in self.vsgs_list[dst_vsg].satellites]
+                src_sat, dst_sat, src_dst_distance_m = self.get_src_dst_sat(prev_vsg, dst_vsg, src_vsg_sats, dst_vsg_sats)
+
+                # prev_sat -> src_sat
+                if prev_sat != src_sat:
+                    try:
+                        sub_path = nx.shortest_path(self.G, source=prev_sat, target=src_sat)
+
+                        for sid in sub_path[1:]:
+                            gsfc.noname_satellite_path.append([sid, None])
+                        gsfc.noname_cur_sat_id = src_sat
+                    except nx.NetworkXNoPath:
+                        print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
+                        gsfc.noname_dropped = True
+                        return []
                 else:
-                    candidate_src_sats = [
-                        sat.id for sat in self.vsgs_list[prev_vsg].satellites
-                    ]
+                    prev_sat = src_sat
 
-                if not candidate_src_sats:
-                    print(f"[ERROR] 3-1 No SATELLITE TO SRC")
-                    gsfc.noname_dropped = True
-                    return []
-
-                is_vnf_dst = self.has_vnf_tag(dst_vnf)
-                if is_vnf_dst:
-                    current_vnf_id = self.get_vnf_id_for_list(dst_vnf)
-                    candidate_dst_sats = [
-                        sat.id for sat in self.vsgs_list[dst_vsg].satellites
-                        if current_vnf_id in sat.vnf_list
-                    ]
+                # src_sat -> dst_sat
+                if src_sat == dst_sat:  # 이동 X
+                    # SRC랑 DST는 다른 VSG 내에 있음.
+                    print(f"[WARN] src_sat is not in dst_vsg")
+                    return
                 else:
-                    candidate_dst_sats = [
-                        sat.id for sat in self.vsgs_list[dst_vsg].satellites
-                    ]
+                    try:
+                        sub_path = nx.shortest_path(self.G, source=src_sat, target=dst_sat)
 
-                if not candidate_dst_sats:
-                    print(f"[ERROR] 3-1 No SATELLITE TO DST")
-                    gsfc.noname_dropped = True
-                    return []
+                        for sid in sub_path[1:]:
+                            gsfc.noname_satellite_path.append([sid, None])
+                        gsfc.noname_cur_sat_id = dst_sat
+                    except nx.NetworkXNoPath:
+                        print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
+                        gsfc.noname_dropped = True
+                        return []
 
-                if prev_vsg != dst_vsg: # vsg 이동이 필요할 때만 진행
-                    src_vsg_sats = [sat.id for sat in self.vsgs_list[prev_vsg].satellites]
-                    dst_vsg_sats = [sat.id for sat in self.vsgs_list[dst_vsg].satellites]
-                    src_sat, dst_sat, src_dst_distance_m = self.get_src_dst_sat(prev_vsg, dst_vsg, src_vsg_sats, dst_vsg_sats)
+            if prev_vsg == dst_vsg:
+                dst_sat = prev_sat
 
-                    # prev_sat -> src_sat
-                    if prev_sat != src_sat:
-                        try:
-                            sub_path = nx.shortest_path(self.G, source=prev_sat, target=src_sat)
-
-                            for sid in sub_path[1:]:
-                                gsfc.noname_satellite_path.append([sid, None])
-                            gsfc.noname_cur_sat_id = src_sat
-                        except nx.NetworkXNoPath:
-                            print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
-                            gsfc.noname_dropped = True
-                            return []
-                    else:
-                        prev_sat = src_sat
-
-                    # src_sat -> dst_sat
-                    if src_sat == dst_sat:  # 이동 X
-                        # SRC랑 DST는 다른 VSG 내에 있음.
-                        print(f"[WARN] src_sat is not in dst_vsg")
-                        return
-                    else:
-                        try:
-                            sub_path = nx.shortest_path(self.G, source=src_sat, target=dst_sat)
-
-                            for sid in sub_path[1:]:
-                                gsfc.noname_satellite_path.append([sid, None])
-                            gsfc.noname_cur_sat_id = dst_sat
-                        except nx.NetworkXNoPath:
-                            print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
-                            gsfc.noname_dropped = True
-                            return []
-
-                if prev_vsg == dst_vsg:
-                    dst_sat = prev_sat
-
-                # dst_sat -> vnf_sat
-                if "longgest" in mode:
-                    vnf_sat = self.get_longgest_vnf_dst_sat_id(candidate_dst_sats)
-                else:
-                    _, vnf_sat, dst_vnf_distance_m = self.get_src_dst_sat(dst_vsg, dst_vsg, [dst_sat], candidate_dst_sats)
+            # dst_sat -> vnf_sat
+            if "longgest" in mode:
+                vnf_sat = self.get_longgest_vnf_dst_sat_id(candidate_dst_sats)
+            else:
+                _, vnf_sat, dst_vnf_distance_m = self.get_src_dst_sat(dst_vsg, dst_vsg, [dst_sat], candidate_dst_sats)
 
 
-                if dst_sat != vnf_sat:
-                    dst_sat_avg_queue = mean([len(isl_k) for isl_k in self.sat_list[dst_sat].queue_ISL])
+            if dst_sat != vnf_sat:
+                dst_sat_avg_queue = mean([len(isl_k) for isl_k in self.sat_list[dst_sat].queue_ISL])
 
-                    if dst_sat_avg_queue > 200:
-                        # gserver까지 graph에 추가
-                        current_G = self.G
-                        selected_gserver_id = dst_vsg.gserver
-                        if selected_gserver_id is not None:
-                            current_G = self.create_temp_gserver_graph(selected_gserver_id)
-                            # gsfc에 처리 gserver 추가
-                            selected_gserver = self.gserver_list[selected_gserver_id]
-                            gsfc.gserver = selected_gserver
+                if dst_sat_avg_queue > 200:
+                    # gserver까지 graph에 추가
+                    current_G = self.G
+                    selected_gserver_id = dst_vsg.gserver
+                    if selected_gserver_id is not None:
+                        current_G = self.create_temp_gserver_graph(selected_gserver_id)
+                        # gsfc에 처리 gserver 추가
+                        selected_gserver = self.gserver_list[selected_gserver_id]
+                        gsfc.gserver = selected_gserver
 
-                        # dst_sat -> vnf_g
-                        if prev_sat == vnf_sat:  # 이동 X
-                            gsfc.noname_satellite_path.append([vnf_sat, dst_vnf])
-                            gsfc.noname_cur_sat_id = vnf_sat
-                        else:
-                            try:
-                                sub_path = nx.shortest_path(current_G, source=prev_sat, target=vnf_sat)
-
-                                if len(sub_path) > 2:
-                                    for sid in sub_path[1:-1]:
-                                        gsfc.noname_satellite_path.append([sid, None])
-                                gsfc.noname_satellite_path.append([vnf_sat, dst_vnf])
-                                gsfc.noname_cur_sat_id = vnf_sat
-                            except nx.NetworkXNoPath:
-                                print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
-                                gsfc.noname_dropped = True
-                                return []
-
+                    # dst_sat -> vnf_g
+                    if prev_sat == vnf_sat:  # 이동 X
+                        gsfc.noname_satellite_path.append([vnf_sat, dst_vnf])
+                        gsfc.noname_cur_sat_id = vnf_sat
                     else:
                         try:
-                            sub_path = nx.shortest_path(self.G, source=dst_sat, target=vnf_sat)
+                            sub_path = nx.shortest_path(current_G, source=prev_sat, target=vnf_sat)
 
                             if len(sub_path) > 2:
                                 for sid in sub_path[1:-1]:
@@ -1189,14 +1287,28 @@ class Simulation:
                             return []
 
                 else:
-                    gsfc.noname_satellite_path[-1] = [dst_sat, dst_vnf]
+                    try:
+                        sub_path = nx.shortest_path(self.G, source=dst_sat, target=vnf_sat)
+
+                        if len(sub_path) > 2:
+                            for sid in sub_path[1:-1]:
+                                gsfc.noname_satellite_path.append([sid, None])
+                        gsfc.noname_satellite_path.append([vnf_sat, dst_vnf])
+                        gsfc.noname_cur_sat_id = vnf_sat
+                    except nx.NetworkXNoPath:
+                        print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
+                        gsfc.noname_dropped = True
+                        return []
+
+            else:
+                gsfc.noname_satellite_path[-1] = [dst_sat, dst_vnf]
 
             gsfc.noname_cur_vsg_path_id += 1
 
     def set_satellite_path(self, gsfc, mode):
         if gsfc.id not in self.vsg_path or not self.vsg_path[gsfc.id]:
             print(f"[ERROR] 2-1 ~AGAIN~ No VSG between VSG")
-            gsfc.basic_dropped = True
+            setattr(gsfc, f"{mode}_dropped", True)
             return []
 
         satellite_path_attr = f"{mode}_satellite_path"
@@ -1204,132 +1316,188 @@ class Simulation:
         processed_satellite_path_attr = f"{mode}_processed_satellite_path"
         processed_satellite_path = getattr(gsfc, processed_satellite_path_attr)
 
-        if gsfc.sfc_type_idx == 1: #mMTC:
-            if satellite_path == []:
-                src_vsg_id, src_vnf = self.vsg_path[gsfc.id][0]
-                src_vsg = self.vsgs_list[src_vsg_id]
-
-                selected_sat = []
-
-                sat_all_vnfs = [
-                    sat.id for sat in src_vsg.satellites
-                    if all(vnf in sat.vnf_list for vnf in gsfc.vnf_sequence)
-                ]
-
-                if sat_all_vnfs:
-                    # Priority 1 만족: 해당 위성들 중 무작위 선택
-                    selected_sat = random.choice(sat_all_vnfs)
-                else:
-                    first_vnf = gsfc.vnf_sequence[0]
-
-                    sat_first_vnf = [
-                        sat.id for sat in src_vsg.satellites
-                        if first_vnf in sat.vnf_list
-                    ]
-
-                    if sat_first_vnf:
-                        # Priority 2 만족: 해당 위성들 중 무작위 선택
-                        selected_sat = random.choice(sat_first_vnf)
-
-                if selected_sat == []:
-                    selected_sat = random.choice([sat.id for sat in src_vsg.satellites])
-
-                satellite_path.append([selected_sat, 'src'])
-                for vnf in gsfc.vnf_sequence:
-                    satellite_path.append([selected_sat, f"vnf{vnf}"])
-                satellite_path.append([selected_sat, "dst"])
-            else:
-                print(f"[NO GENERATION] already generation is done in mMTC scenario")
-
+        # if gsfc.sfc_type_idx == 2: #mMTC:
+        #     if satellite_path == []:
+        #         src_vsg_id, src_vnf = self.vsg_path[gsfc.id][0]
+        #         src_vsg = self.vsgs_list[src_vsg_id]
+        #
+        #         selected_sat = []
+        #
+        #         sat_all_vnfs = [
+        #             sat.id for sat in src_vsg.satellites
+        #             if all(vnf in sat.vnf_list for vnf in gsfc.vnf_sequence)
+        #         ]
+        #
+        #         if sat_all_vnfs:
+        #             # Priority 1 만족: 해당 위성들 중 무작위 선택
+        #             selected_sat = random.choice(sat_all_vnfs)
+        #         else:
+        #             first_vnf = gsfc.vnf_sequence[0]
+        #
+        #             sat_first_vnf = [
+        #                 sat.id for sat in src_vsg.satellites
+        #                 if first_vnf in sat.vnf_list
+        #             ]
+        #
+        #             if sat_first_vnf:
+        #                 # Priority 2 만족: 해당 위성들 중 무작위 선택
+        #                 selected_sat = random.choice(sat_first_vnf)
+        #
+        #         if selected_sat == []:
+        #             selected_sat = random.choice([sat.id for sat in src_vsg.satellites])
+        #
+        #         satellite_path.append([selected_sat, 'src'])
+        #         for vnf in gsfc.vnf_sequence:
+        #             satellite_path.append([selected_sat, f"vnf{vnf}"])
+        #         satellite_path.append([selected_sat, "dst"])
+        #     else:
+        #         print(f"[NO GENERATION] already generation is done in mMTC scenario")
+        #
+        # else:
+        if len(satellite_path) < 1:
+            prev_sat = -1
         else:
-            if len(satellite_path) < 1:
-                prev_sat = -1
+            if len(processed_satellite_path) < 1:
+                prev_sat = satellite_path[0][0]
             else:
-                if len(processed_satellite_path) < 1:
-                    prev_sat = satellite_path[0][0]
-                else:
-                    prev_sat = processed_satellite_path[-1][0]
+                prev_sat = processed_satellite_path[-1][0]
 
-            # processed satellite path가 있으면 processed satellite path를 통해 processed vsg path 구하기
-            remain_vsg_path = self.get_remained_vsg_path(gsfc, mode)
-            if not remain_vsg_path:
-                print(f"[ERROR] NO VSG LEFT {processed_satellite_path}")
-                return []
+        # processed satellite path가 있으면 processed satellite path를 통해 processed vsg path 구하기
+        remain_vsg_path = self.get_remained_vsg_path(gsfc, mode)
+        if not remain_vsg_path:
+            print(f"[ERROR] NO VSG LEFT {processed_satellite_path}")
+            return []
 
-            path_list = getattr(gsfc, satellite_path_attr)
+        path_list = getattr(gsfc, satellite_path_attr)
 
-            # TODO. remain_vsg_path가 1개일 때도 필요?
-            if len(remain_vsg_path) == 1:
-                print(f"[INFO] gsfc id {gsfc.id} remain_vsg_path is {remain_vsg_path}")
-            for i in range(len(remain_vsg_path) - 1):
-                src_vsg, src_vnf = remain_vsg_path[i]
-                dst_vsg, dst_vnf = remain_vsg_path[i + 1]
+        # TODO. remain_vsg_path가 1개일 때도 필요?
+        if len(remain_vsg_path) == 1:
+            print(f"[INFO] gsfc id {gsfc.id} remain_vsg_path is {remain_vsg_path}, current_path: {satellite_path}, processed_path: {processed_satellite_path}")
+            # path_list.append(remain_vsg_path)
+        for i in range(len(remain_vsg_path) - 1):
+            src_vsg, src_vnf = remain_vsg_path[i]
+            dst_vsg, dst_vnf = remain_vsg_path[i + 1]
 
-                if prev_sat == -1:
-                    is_vnf = self.has_vnf_tag(src_vnf)
-                    if is_vnf:
-                        current_vnf_id = self.get_vnf_id_for_list(src_vnf)
-                        candidate_src_sats = [
-                            sat.id for sat in self.vsgs_list[src_vsg].satellites
-                            if current_vnf_id in sat.vnf_list
-                        ]
-                    else:
-                        candidate_src_sats = [
-                            sat.id for sat in self.vsgs_list[src_vsg].satellites
-                        ]
-                    if not candidate_src_sats:
-                        print(f"[ERROR] 3-1 No SATELLITE TO SRC")
-                        setattr(gsfc, f"{mode}_dropped", True)
-                        return []
-                    src_sat = random.choice(candidate_src_sats)
-                    prev_sat = src_sat
-
-                is_vnf = self.has_vnf_tag(dst_vnf)
+            if prev_sat == -1:
+                is_vnf = self.has_vnf_tag(src_vnf)
                 if is_vnf:
-                    current_vnf_id = self.get_vnf_id_for_list(dst_vnf)
-                    candidate_dst_sats = [
-                        sat.id for sat in self.vsgs_list[dst_vsg].satellites
+                    current_vnf_id = self.get_vnf_id_for_list(src_vnf)
+                    candidate_src_sats = [
+                        sat.id for sat in self.vsgs_list[src_vsg].satellites
                         if current_vnf_id in sat.vnf_list
                     ]
                 else:
-                    candidate_dst_sats = [
-                        sat.id for sat in self.vsgs_list[dst_vsg].satellites
+                    candidate_src_sats = [
+                        sat.id for sat in self.vsgs_list[src_vsg].satellites
                     ]
-
-                if not candidate_dst_sats:
-                    print(f"[ERROR] 3-1 No SATELLITE TO DST")
+                if not candidate_src_sats:
+                    print(f"[ERROR] 3-1 No SATELLITE TO SRC")
                     setattr(gsfc, f"{mode}_dropped", True)
-                    gsfc.basic_dropped = True
                     return []
-                dst_sat = random.choice(candidate_dst_sats)
+                src_sat = random.choice(candidate_src_sats)
+                prev_sat = src_sat
 
-                if prev_sat == dst_sat: # 이동 X
+            is_vnf = self.has_vnf_tag(dst_vnf)
+            if is_vnf:
+                current_vnf_id = self.get_vnf_id_for_list(dst_vnf)
+                candidate_dst_sats = [
+                    sat.id for sat in self.vsgs_list[dst_vsg].satellites
+                    if current_vnf_id in sat.vnf_list
+                ]
+            else:
+                candidate_dst_sats = [
+                    sat.id for sat in self.vsgs_list[dst_vsg].satellites
+                ]
+
+            if not candidate_dst_sats:
+                print(f"[ERROR] 3-1 No SATELLITE TO DST")
+                setattr(gsfc, f"{mode}_dropped", True)
+                return []
+            dst_sat = random.choice(candidate_dst_sats)
+
+            if prev_sat == dst_sat: # 이동 X
+                if i == 0:
+                    path_list.append([prev_sat, src_vnf])
+                path_list.append([dst_sat, dst_vnf])
+                prev_sat = dst_sat
+            else:
+                try:
+                    sub_path = nx.shortest_path(self.G, source=prev_sat, target=dst_sat)
+
                     if i == 0:
                         path_list.append([prev_sat, src_vnf])
+                    if len(sub_path) > 2:
+                        for sid in sub_path[1:-1]:
+                            path_list.append([sid, None])
                     path_list.append([dst_sat, dst_vnf])
                     prev_sat = dst_sat
-                else:
-                    try:
-                        sub_path = nx.shortest_path(self.G, source=prev_sat, target=dst_sat)
-
-                        if i == 0:
-                            path_list.append([prev_sat, src_vnf])
-                        if len(sub_path) > 2:
-                            for sid in sub_path[1:-1]:
-                                path_list.append([sid, None])
-                        path_list.append([dst_sat, dst_vnf])
-                        prev_sat = dst_sat
-                    except nx.NetworkXNoPath:
-                        print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
-                        setattr(gsfc, f"{mode}_dropped", True)
-                        return []
+                except nx.NetworkXNoPath:
+                    print(f"[ERROR] 3-2 No TRAJECTORY SAT TO SAT")
+                    setattr(gsfc, f"{mode}_dropped", True)
+                    return []
 
     # ========= DD ========= #
     # vnf sequence를 처리할 수 있는 위성 리스트로 총 조합을 구한 뒤, 전역 최적 경로 선택
-    def find_shortest_satellite_vnf_path(self, gsfc):
-        vnf_sequence = gsfc.vnf_sequence
-        src_vsg_id = gsfc.src_vsg_id
+    def find_shortest_satellite_vnf_path(self, gsfc, mode):
+        satellite_path_attr = f"{mode}_satellite_path"
+        satellite_path = getattr(gsfc, satellite_path_attr, [])
+        remain_satellite_path = gsfc.get_remain_path(mode)
+
+        remain_vnf_sequence = self.get_remain_vsg_sequence(gsfc, mode)
+        if not remain_vnf_sequence:
+            print(f"[ERROR] NO VSG LEFT {getattr(gsfc, f'{mode}_processed_satellite_path', [])}")
+            return []
+
+        # if gsfc.sfc_type_idx == 2:  # mMTC
+        #     if satellite_path == []:
+        #         src_vsg_id = gsfc.src_vsg_id
+        #         src_vsg = self.vsgs_list[src_vsg_id]
+        #
+        #         selected_sat = []
+        #
+        #         sat_all_vnfs = [
+        #             sat.id for sat in src_vsg.satellites
+        #             if all(vnf in sat.vnf_list for vnf in gsfc.vnf_sequence)
+        #         ]
+        #
+        #         if sat_all_vnfs:
+        #             # Priority 1 만족: 해당 위성들 중 무작위 선택
+        #             selected_sat = random.choice(sat_all_vnfs)
+        #         else:
+        #             first_vnf = gsfc.vnf_sequence[0]
+        #
+        #             sat_first_vnf = [
+        #                 sat.id for sat in src_vsg.satellites
+        #                 if first_vnf in sat.vnf_list
+        #             ]
+        #
+        #             if sat_first_vnf:
+        #                 # Priority 2 만족: 해당 위성들 중 무작위 선택
+        #                 selected_sat = random.choice(sat_first_vnf)
+        #
+        #         if selected_sat == []:
+        #             selected_sat = random.choice([sat.id for sat in src_vsg.satellites])
+        #
+        #         satellite_path.append([selected_sat, 'src'])
+        #         for vnf in gsfc.vnf_sequence:
+        #             satellite_path.append([selected_sat, f"vnf{vnf}"])
+        #         satellite_path.append([selected_sat, "dst"])
+        #     else:
+        #         print(f"[NO GENERATION] already generation is done in mMTC scenario")
+        #
+        # else:
+        vnf_sequence = remain_vnf_sequence
+
+        if satellite_path == []:
+            src_vsg_id = gsfc.src_vsg_id
+            src_vsg_sat_ids = [sat.id for sat in self.vsgs_list[src_vsg_id].satellites if
+                               sat.id not in self.congested_sat_ids]
+        else:
+            src_vsg_sat_ids = [remain_satellite_path[0][0]]
+
         dst_vsg_id = gsfc.dst_vsg_id
+        dst_vsg_sat_ids = [sat.id for sat in self.vsgs_list[dst_vsg_id].satellites if
+                           sat.id not in self.congested_sat_ids]
 
         # vnf 별 가능한 위성 후보군 추출
         unique_vnf_types = sorted(list(set(vnf_sequence)))
@@ -1342,12 +1510,6 @@ class Simulation:
             if not candidate_sats:
                 print(f"[ERROR] No satellites available for VNF {vnf}")
             vnf_to_sat_ids[vnf] = candidate_sats
-
-        # src/dst VSG 내 위성 목록
-        src_vsg_sat_ids = [sat.id for sat in self.vsgs_list[src_vsg_id].satellites if
-                           sat.id not in self.congested_sat_ids]
-        dst_vsg_sat_ids = [sat.id for sat in self.vsgs_list[dst_vsg_id].satellites if
-                           sat.id not in self.congested_sat_ids]
 
         best_full_path = None
         min_total_hops = float('inf')
@@ -1370,11 +1532,16 @@ class Simulation:
 
             # src_vsg에서 첫 번째 vnf 실행 불가 -> src_vsg에서 가장 체류 시간 긴 위성 선택
             is_src_sat_added_vnf = True
-            if path[0] not in src_vsg_sat_ids:
-                # src_vsg 내 가장 작은 인덱스의 위성 붙이기
-                start_sat = min(src_vsg_sat_ids)
-                path.insert(0, start_sat)
-                is_src_sat_added_vnf = False
+            if len(remain_satellite_path) > 1 :
+                is_first_remain_vnf = self.has_vnf_tag(remain_satellite_path[0][1])
+                if is_first_remain_vnf:
+                    path[0] = remain_satellite_path[0]
+            else:
+                if path[0] not in src_vsg_sat_ids:
+                    # src_vsg 내 가장 작은 인덱스의 위성 붙이기
+                    start_sat = min(src_vsg_sat_ids)
+                    path.insert(0, start_sat)
+                    is_src_sat_added_vnf = False
 
             # dst_vsg에서 마지막 vnf 실행 불가 -> dst_vsg에서 가장 체류 시간 긴 위성 선택
             is_dst_sat_added_vnf = True
@@ -1385,83 +1552,89 @@ class Simulation:
 
             # 전체 경로 유효성 및 홉 수 계산
             current_vnf_id = 0
-            for i in range(len(path) - 1):
-                if (i == 0) and is_src_sat_added_vnf:
-                    full_path.append([path[i], ("src", f"vnf{vnf_sequence[current_vnf_id]}")])
-                    current_vnf_id += 1
-                elif (i == 0) and not is_src_sat_added_vnf:
-                    full_path.append([path[i], ("src")])
-                else:
-                    if path[i - 1] == path[i]:
-                        full_path.append([path[i], (f"vnf{vnf_sequence[current_vnf_id]}")])
-                        current_vnf_id += 1
-                    else:
-                        segment = self.get_full_path(path[i-1], path[i])
-                        if not segment:
-                            valid = False
-                            break
 
-                        total_hops += len(segment) - 1
-                        if full_path:
-                            if len(segment) > 2:
-                                for seg in segment[1:-1]:
-                                    full_path.append([seg, (None)])
-                            full_path.append([segment[-1], (f"vnf{vnf_sequence[current_vnf_id]}")])
+            if len(path) == 1: #src부터 vnf 처리, dst까지 모두 같은 vsg에서 처리
+                full_path.append([path[0], ("src", f"vnf{vnf_sequence[current_vnf_id]}", "dst")])
+                current_vnf_id += 1
+            else:
+                for i in range(len(path) - 1):
+                    if (i == 0) and is_src_sat_added_vnf:
+                        full_path.append([path[i], ("src", f"vnf{vnf_sequence[current_vnf_id]}")])
+                        current_vnf_id += 1
+                    elif (i == 0) and not is_src_sat_added_vnf:
+                        full_path.append([path[i], ("src")])
+                    else:
+                        if path[i - 1] == path[i]:
+                            full_path.append([path[i], (f"vnf{vnf_sequence[current_vnf_id]}")])
                             current_vnf_id += 1
                         else:
-                            full_path.append([segment[0], (f"vnf{vnf_sequence[current_vnf_id]}")])
-                            current_vnf_id += 1
-                            if len(segment) > 2:
-                                for seg in segment[:-1]:
-                                    full_path.append([seg, (None)])
-                            full_path.append([segment[-1], (f"vnf{vnf_sequence[current_vnf_id]}")])
-                            current_vnf_id += 1
-            # 마지막 도착지 처리
-            if path[-2] == path[-1]:
-                if is_dst_sat_added_vnf:
-                    full_path.append([path[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
-                else:
-                    full_path.append([path[-1], ("dst")])
-            else:
-                segment = self.get_full_path(path[-2], path[-1])
-                if not segment:
-                    valid = False
-                    break
+                            segment = self.get_full_path(path[i-1], path[i])
+                            if not segment:
+                                valid = False
+                                break
 
-                total_hops += len(segment) - 1
-                if full_path:
-                    if len(segment) > 2:
-                        for seg in segment[1:-1]:
-                            full_path.append([seg, (None)])
+                            total_hops += len(segment) - 1
+                            if full_path:
+                                if len(segment) > 2:
+                                    for seg in segment[1:-1]:
+                                        full_path.append([seg, (None)])
+                                full_path.append([segment[-1], (f"vnf{vnf_sequence[current_vnf_id]}")])
+                                current_vnf_id += 1
+                            else:
+                                full_path.append([segment[0], (f"vnf{vnf_sequence[current_vnf_id]}")])
+                                current_vnf_id += 1
+                                if len(segment) > 2:
+                                    for seg in segment[:-1]:
+                                        full_path.append([seg, (None)])
+                                full_path.append([segment[-1], (f"vnf{vnf_sequence[current_vnf_id]}")])
+                                current_vnf_id += 1
+                # 마지막 도착지 처리
+                if path[-2] == path[-1]:
                     if is_dst_sat_added_vnf:
-                        full_path.append([segment[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
+                        full_path.append([path[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
                     else:
-                        full_path.append([segment[-1], ("dst")])
-                    current_vnf_id += 1
+                        full_path.append([path[-1], ("dst")])
                 else:
-                    full_path.append([segment[0], (f"vnf{vnf_sequence[current_vnf_id]}")])
-                    current_vnf_id += 1
-                    if len(segment) > 2:
-                        for seg in segment[:-1]:
-                            full_path.append([seg, (None)])
-                    if is_dst_sat_added_vnf:
-                        full_path.append([segment[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
+                    segment = self.get_full_path(path[-2], path[-1])
+                    if not segment:
+                        valid = False
+                        break
+
+                    total_hops += len(segment) - 1
+                    if full_path:
+                        if len(segment) > 2:
+                            for seg in segment[1:-1]:
+                                full_path.append([seg, (None)])
+                        if is_dst_sat_added_vnf:
+                            full_path.append([segment[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
+                        else:
+                            full_path.append([segment[-1], ("dst")])
+                        current_vnf_id += 1
                     else:
-                        full_path.append([segment[-1], ("dst")])
-                    current_vnf_id += 1
+                        full_path.append([segment[0], (f"vnf{vnf_sequence[current_vnf_id]}")])
+                        current_vnf_id += 1
+                        if len(segment) > 2:
+                            for seg in segment[:-1]:
+                                full_path.append([seg, (None)])
+                        if is_dst_sat_added_vnf:
+                            full_path.append([segment[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
+                        else:
+                            full_path.append([segment[-1], ("dst")])
+                        current_vnf_id += 1
 
-            if valid and total_hops < min_total_hops:
-                # print(f"NEWNEW {total_hops}, vnf_combo: {vnf_combo}")
-                min_total_hops = total_hops
-                best_full_path = full_path
-                gsfc.dd_hop_count = min_total_hops
+                if valid and total_hops < min_total_hops:
+                    # print(f"NEWNEW {total_hops}, vnf_combo: {vnf_combo}")
+                    min_total_hops = total_hops
+                    best_full_path = full_path
+                    setattr(gsfc, f"{mode}_hop_count", min_total_hops)
 
-        gsfc.dd_satellite_path = best_full_path
+            setattr(gsfc, satellite_path_attr, best_full_path)
+
 
 
     # ========= SD ========= #
     # SRC-DST 간 최적 경로 설정 후, src vsg의 지상국에서 전체 vnf 처리
-    def find_shortest_satellite_path_between_src_dst(self, gsfc):
+    def find_shortest_satellite_path_between_src_dst(self, gsfc, mode):
         src_vsg = self.vsgs_list[gsfc.src_vsg_id]
         dst_vsg = self.vsgs_list[gsfc.dst_vsg_id]
 
@@ -1490,14 +1663,14 @@ class Simulation:
             if len(shortest_path) > 1:
                 formatted_path.append([shortest_path[-1], 'dst'])
 
-        gsfc.sd_satellite_path = formatted_path
-        gsfc.sd_hop_count = len(gsfc.sd_satellite_path) + 1
-        gsfc.gserver = src_vsg.gserver
-        gsfc.sd_total_vnf_size = sum(gsfc.vnf_sizes)
+        setattr(gsfc, f"{mode}_satellite_path", formatted_path)
+        setattr(gsfc, f"{mode}_hop_count", len(formatted_path) - 1)
+        setattr(gsfc, "gserver", src_vsg.gserver)
+        setattr(gsfc, f"{mode}_total_vnf_size", sum(gsfc.vnf_sizes))
 
     # ========= SD+DBPR ========= #
     # 지상국 layer 포함. queue 상태를 고려한 delay 최적 경로 생성
-    def advanced_proposed_find_satellite_path(self, gsfc):
+    def advanced_proposed_find_satellite_path(self, gsfc, mode):
         gserver_node_ids = [NUM_SATELLITES + gserver.id for gserver in self.gserver_list]
 
         # option 1. 한 가지의 VNF만 지상국에서 처리
@@ -1728,14 +1901,32 @@ class Simulation:
                 best_delay = (total_hops + current_queue_delay)
                 best_full_path = full_path
 
-        gsfc.sd_satellite_path = best_full_path
+        setattr(gsfc, f"{mode}_satellite_path", best_full_path)
 
     # ========= DD+DBPR ========= #
     # 위성 layer 한정. queue 상태를 고려한 delay 최적 경로 생성
-    def proposed_find_satellite_path(self, gsfc):
-        vnf_sequence = gsfc.vnf_sequence
-        src_vsg_id = gsfc.src_vsg_id
+    def proposed_find_satellite_path(self, gsfc, mode):
+        satellite_path_attr = f"{mode}_satellite_path"
+        satellite_path = getattr(gsfc, satellite_path_attr, [])
+        remain_satellite_path = gsfc.get_remain_path(mode)
+
+        remain_vnf_sequence = self.get_remain_vsg_sequence(gsfc, mode)
+        if not remain_vnf_sequence:
+            print(f"[ERROR] NO VSG LEFT {getattr(gsfc, f'{mode}_processed_satellite_path', [])}")
+            return []
+
+        vnf_sequence = remain_vnf_sequence
+
+        if satellite_path == []:
+            src_vsg_id = gsfc.src_vsg_id
+            src_vsg_sat_ids = [sat.id for sat in self.vsgs_list[src_vsg_id].satellites if
+                               sat.id not in self.congested_sat_ids]
+        else:
+            src_vsg_sat_ids = [remain_satellite_path[0][0]]
+
         dst_vsg_id = gsfc.dst_vsg_id
+        dst_vsg_sat_ids = [sat.id for sat in self.vsgs_list[dst_vsg_id].satellites if
+                           sat.id not in self.congested_sat_ids]
 
         # vnf 별 가능한 위성 후보군 추출
         unique_vnf_types = sorted(list(set(vnf_sequence)))
@@ -1748,12 +1939,6 @@ class Simulation:
             if not candidate_sats:
                 print(f"[ERROR] No satellites available for VNF {vnf}")
             vnf_to_sat_ids[vnf] = candidate_sats
-
-        # src/dst VSG 내 위성 목록
-        src_vsg_sat_ids = [sat.id for sat in self.vsgs_list[src_vsg_id].satellites if
-                           sat.id not in self.congested_sat_ids]
-        dst_vsg_sat_ids = [sat.id for sat in self.vsgs_list[dst_vsg_id].satellites if
-                           sat.id not in self.congested_sat_ids]
 
         best_full_path = None
         min_total_delay = float('inf')
@@ -1795,158 +1980,162 @@ class Simulation:
                 is_dst_sat_added_vnf = False
 
             current_vnf_id = 0
-            for i in range(len(path) - 1):
-                if (i == 0) and is_src_sat_added_vnf:
-                    full_path.append([path[i], ("src", f"vnf{vnf_sequence[current_vnf_id]}")])
-                    next_sat = self.sat_list[path[i]]
-                    transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
-                    proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
-                    current_queue_delay += proc_queue + transmit_queue  # process_queue의 길이 + queue_ISL 길이
-                    current_vnf_id += 1
-                elif (i == 0) and not is_src_sat_added_vnf:
-                    full_path.append([path[i], ("src")])
-                    next_sat = self.sat_list[path[i]]
-                    transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
-                    current_queue_delay += transmit_queue  # queue_ISL 길이만
-                else:
-                    if path[i - 1] == path[i]:
-                        full_path.append([path[i], (f"vnf{vnf_sequence[current_vnf_id]}")])
-
+            if len(path) == 1:  # src부터 vnf 처리, dst까지 모두 같은 vsg에서 처리
+                full_path.append([path[0], ("src", f"vnf{vnf_sequence[current_vnf_id]}", "dst")])
+                current_vnf_id += 1
+            else:
+                for i in range(len(path) - 1):
+                    if (i == 0) and is_src_sat_added_vnf:
+                        full_path.append([path[i], ("src", f"vnf{vnf_sequence[current_vnf_id]}")])
                         next_sat = self.sat_list[path[i]]
-                        hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
                         transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
                         proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
-                        hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                        current_queue_delay += hop_alpha * (
-                                    proc_queue + transmit_queue)  # process_queue의 길이 + queue_ISL 길이
+                        current_queue_delay += proc_queue + transmit_queue  # process_queue의 길이 + queue_ISL 길이
                         current_vnf_id += 1
+                    elif (i == 0) and not is_src_sat_added_vnf:
+                        full_path.append([path[i], ("src")])
+                        next_sat = self.sat_list[path[i]]
+                        transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                        current_queue_delay += transmit_queue  # queue_ISL 길이만
                     else:
-                        segment = self.get_full_path(path[i - 1], path[i])
-                        if not segment:
-                            valid = False
-                            break
+                        if path[i - 1] == path[i]:
+                            full_path.append([path[i], (f"vnf{vnf_sequence[current_vnf_id]}")])
 
-                        total_hops += len(segment) - 1
-                        if full_path:
-                            if len(segment) > 2:
-                                for seg in segment[1:-1]:
-                                    full_path.append([seg, (None)])
-                                    next_sat = self.sat_list[seg]
-                                    transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
-                                    hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
-                                    hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                                    current_queue_delay += hop_alpha * transmit_queue  # queue_ISL 길이만
-                            full_path.append([segment[-1], (f"vnf{vnf_sequence[current_vnf_id]}")])
-                            next_sat = self.sat_list[segment[-1]]
+                            next_sat = self.sat_list[path[i]]
+                            hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
                             transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
                             proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
-                            hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
                             hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
                             current_queue_delay += hop_alpha * (
                                         proc_queue + transmit_queue)  # process_queue의 길이 + queue_ISL 길이
                             current_vnf_id += 1
                         else:
-                            full_path.append([segment[0], (f"vnf{vnf_sequence[current_vnf_id]}")])
-                            next_sat = self.sat_list[segment[0]]
-                            transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                            segment = self.get_full_path(path[i - 1], path[i])
+                            if not segment:
+                                valid = False
+                                break
+
+                            total_hops += len(segment) - 1
+                            if full_path:
+                                if len(segment) > 2:
+                                    for seg in segment[1:-1]:
+                                        full_path.append([seg, (None)])
+                                        next_sat = self.sat_list[seg]
+                                        transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                                        hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
+                                        hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
+                                        current_queue_delay += hop_alpha * transmit_queue  # queue_ISL 길이만
+                                full_path.append([segment[-1], (f"vnf{vnf_sequence[current_vnf_id]}")])
+                                next_sat = self.sat_list[segment[-1]]
+                                transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                                proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
+                                hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
+                                hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
+                                current_queue_delay += hop_alpha * (
+                                            proc_queue + transmit_queue)  # process_queue의 길이 + queue_ISL 길이
+                                current_vnf_id += 1
+                            else:
+                                full_path.append([segment[0], (f"vnf{vnf_sequence[current_vnf_id]}")])
+                                next_sat = self.sat_list[segment[0]]
+                                transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                                proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
+                                hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
+                                hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
+                                current_queue_delay += hop_alpha * (
+                                            proc_queue + transmit_queue)  # process_queue의 길이 + queue_ISL 길이
+                                current_vnf_id += 1
+                                if len(segment) > 2:
+                                    for seg in segment[:-1]:
+                                        full_path.append([seg, (None)])
+                                        next_sat = self.sat_list[seg]
+                                        transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                                        hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
+                                        hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
+                                        current_queue_delay += hop_alpha * transmit_queue  # queue_ISL 길이만
+                                full_path.append([segment[-1], (f"vnf{vnf_sequence[current_vnf_id]}")])
+                                next_sat = segment[-1]
+                                transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                                proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
+                                hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
+                                hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
+                                current_queue_delay += hop_alpha * (
+                                            proc_queue + transmit_queue)  # process_queue의 길이 + queue_ISL 길이
+                                current_vnf_id += 1
+
+                # 마지막 도착지 처리
+                if path[-2] == path[-1]:
+                    if is_dst_sat_added_vnf:
+                        full_path.append([path[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
+
+                        next_sat = self.sat_list[path[-1]]
+                        hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
+                        hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
+                        proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
+                        current_queue_delay += hop_alpha * proc_queue  # process_queue의 길이
+                    else:
+                        full_path.append([path[-1], ("dst")])
+                else:
+                    segment = self.get_full_path(path[-2], path[-1])
+                    if not segment:
+                        valid = False
+                        break
+
+                    total_hops += len(segment) - 1
+                    if full_path:
+                        if len(segment) > 2:
+                            for seg in segment[1:-1]:
+                                full_path.append([seg, (None)])
+                                next_sat = self.sat_list[seg]
+                                transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                                hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
+                                hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
+                                current_queue_delay += hop_alpha * transmit_queue  # queue_ISL 길이만
+                        if is_dst_sat_added_vnf:
+                            full_path.append([segment[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
+                            next_sat = self.sat_list[segment[-1]]
                             proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
                             hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
                             hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                            current_queue_delay += hop_alpha * (
-                                        proc_queue + transmit_queue)  # process_queue의 길이 + queue_ISL 길이
-                            current_vnf_id += 1
-                            if len(segment) > 2:
-                                for seg in segment[:-1]:
-                                    full_path.append([seg, (None)])
-                                    next_sat = self.sat_list[seg]
-                                    transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
-                                    hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
-                                    hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                                    current_queue_delay += hop_alpha * transmit_queue  # queue_ISL 길이만
-                            full_path.append([segment[-1], (f"vnf{vnf_sequence[current_vnf_id]}")])
-                            next_sat = segment[-1]
-                            transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                            current_queue_delay += hop_alpha * proc_queue  # process_queue의 길이
+                        else:
+                            full_path.append([segment[-1], ("dst")])
+                        current_vnf_id += 1
+                    else:
+                        full_path.append([segment[0], (f"vnf{vnf_sequence[current_vnf_id]}")])
+                        next_sat = self.sat_list[segment[0]]
+                        transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                        proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
+                        hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
+                        hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
+                        current_queue_delay += hop_alpha * (
+                                    proc_queue + transmit_queue)  # process_queue의 길이 + queue_ISL 길이
+                        current_vnf_id += 1
+
+                        if len(segment) > 2:
+                            for seg in segment[:-1]:
+                                full_path.append([seg, (None)])
+                                next_sat = self.sat_list[seg]
+                                transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
+                                hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
+                                hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
+                                current_queue_delay += hop_alpha * transmit_queue  # queue_ISL 길이만
+                        if is_dst_sat_added_vnf:
+                            full_path.append([segment[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
+                            next_sat = self.sat_list[segment[-1]]
                             proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
                             hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
                             hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                            current_queue_delay += hop_alpha * (
-                                        proc_queue + transmit_queue)  # process_queue의 길이 + queue_ISL 길이
-                            current_vnf_id += 1
+                            current_queue_delay += hop_alpha * proc_queue  # process_queue의 길이
+                        else:
+                            full_path.append([segment[-1], ("dst")])
+                        current_vnf_id += 1
 
-            # 마지막 도착지 처리
-            if path[-2] == path[-1]:
-                if is_dst_sat_added_vnf:
-                    full_path.append([path[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
+                if valid and (total_hops + current_queue_delay) < min_total_delay:  # total_delay말고, 거리 반비례 가중치 * 그에 대한 홉수의 합
+                    # print(f"NEWNEW {total_hops} + {current_queue_delay}, vnf_combo: {vnf_combo}")
+                    min_total_delay = (total_hops + current_queue_delay)
+                    best_full_path = full_path
 
-                    next_sat = self.sat_list[path[-1]]
-                    hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
-                    hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                    proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
-                    current_queue_delay += hop_alpha * proc_queue  # process_queue의 길이
-                else:
-                    full_path.append([path[-1], ("dst")])
-            else:
-                segment = self.get_full_path(path[-2], path[-1])
-                if not segment:
-                    valid = False
-                    break
-
-                total_hops += len(segment) - 1
-                if full_path:
-                    if len(segment) > 2:
-                        for seg in segment[1:-1]:
-                            full_path.append([seg, (None)])
-                            next_sat = self.sat_list[seg]
-                            transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
-                            hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
-                            hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                            current_queue_delay += hop_alpha * transmit_queue  # queue_ISL 길이만
-                    if is_dst_sat_added_vnf:
-                        full_path.append([segment[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
-                        next_sat = self.sat_list[segment[-1]]
-                        proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
-                        hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
-                        hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                        current_queue_delay += hop_alpha * proc_queue  # process_queue의 길이
-                    else:
-                        full_path.append([segment[-1], ("dst")])
-                    current_vnf_id += 1
-                else:
-                    full_path.append([segment[0], (f"vnf{vnf_sequence[current_vnf_id]}")])
-                    next_sat = self.sat_list[segment[0]]
-                    transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
-                    proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
-                    hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
-                    hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                    current_queue_delay += hop_alpha * (
-                                proc_queue + transmit_queue)  # process_queue의 길이 + queue_ISL 길이
-                    current_vnf_id += 1
-
-                    if len(segment) > 2:
-                        for seg in segment[:-1]:
-                            full_path.append([seg, (None)])
-                            next_sat = self.sat_list[seg]
-                            transmit_queue = self.get_node_link_queue(next_sat.id, node_type='sat')
-                            hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
-                            hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                            current_queue_delay += hop_alpha * transmit_queue  # queue_ISL 길이만
-                    if is_dst_sat_added_vnf:
-                        full_path.append([segment[-1], ("dst", f"vnf{vnf_sequence[current_vnf_id]}")])
-                        next_sat = self.sat_list[segment[-1]]
-                        proc_queue = self.get_node_process_queue(next_sat.id, node_type='sat')
-                        hop_distance = self.hop_table[(start_sat_id, next_sat.id)]
-                        hop_alpha = (1 / hop_distance) if hop_distance > 0 else 1
-                        current_queue_delay += hop_alpha * proc_queue  # process_queue의 길이
-                    else:
-                        full_path.append([segment[-1], ("dst")])
-                    current_vnf_id += 1
-
-            if valid and (total_hops + current_queue_delay) < min_total_delay:  # total_delay말고, 거리 반비례 가중치 * 그에 대한 홉수의 합
-                # print(f"NEWNEW {total_hops} + {current_queue_delay}, vnf_combo: {vnf_combo}")
-                min_total_delay = (total_hops + current_queue_delay)
-                best_full_path = full_path
-
-            gsfc.dd_satellite_path = best_full_path
+            setattr(gsfc, satellite_path_attr, best_full_path)
 
     def get_remained_vsg_path(self, gsfc, mode):
         full_vsg_path = self.vsg_path[gsfc.id]
@@ -1979,6 +2168,34 @@ class Simulation:
 
         remain_vsg_path = full_vsg_path[processed_vnf_ids:]
         return remain_vsg_path
+
+    def get_remain_vsg_sequence(self, gsfc, mode):
+        full_vsg_sequence = gsfc.vnf_sequence
+
+        processed_path_attr = f"{mode}_processed_satellite_path"
+        processed_path = getattr(gsfc, processed_path_attr, [])
+
+        processed_vnf_sequence = []
+
+        for sat_id, vnf_info in processed_path:
+            if not (0 <= sat_id < NUM_SATELLITES):
+                print("[Warn] This is not a satellite node.")
+                continue
+
+            sat = self.sat_list[sat_id]
+            vsg_id = sat.current_vsg_id
+            if vsg_id is None:
+                print("[Warn] Satellite does not belong to any VSG.")
+                continue
+
+            vnf_tag = self.get_vnf_id_for_list(vnf_info)
+
+            if vnf_tag:
+                processed_vnf_sequence.append(vnf_tag)
+
+        remain_start_id = len(processed_vnf_sequence)
+        remain_vsg_sequence = full_vsg_sequence[remain_start_id:]
+        return remain_vsg_sequence
 
     # node의 transmit queue 크기 반환
     def get_node_link_queue(self, node_id, node_type='sat'):
@@ -2232,7 +2449,7 @@ class Simulation:
             return 'vnf' in x.lower()
         return False
 
-    # 현재 위성에서 vnf 처리하는지 확인
+    # 처리한 마지막 위성이 dst 인지 확인
     def has_dst_tag(self, x):
         if x is None:
             return False
@@ -2248,9 +2465,9 @@ class Simulation:
         for gsfc in self.gsfc_list:
             is_succeed = getattr(gsfc, f"{mode}_is_succeed", False)
             is_dropped = getattr(gsfc, f"{mode}_is_dropped", False)
-            is_mMTC = getattr(gsfc, "sfc_type_idx", -1) == 1
 
-            if is_succeed or is_dropped or is_mMTC:
+            if is_succeed or is_dropped:
+                print(f"[AAAAAAAAAAAAAa] gsfc: {gsfc.id} is_succeed: {is_succeed} is_dropped: {is_dropped}")
                 continue
 
             full_vsg_path = self.vsg_path[gsfc.id]
@@ -2266,7 +2483,7 @@ class Simulation:
                     continue
                 vnf_type = self.get_vnf_id_for_list(vnf_tag)
                 if vnf_type in changed_vnfs:
-                    uses_vnf_changed = True
+                    uses_changed_vnf = True
                     break
 
             if not uses_changed_vnf:
@@ -2340,35 +2557,35 @@ class Simulation:
                 # print(f"[GSFC GENERATION] Time {t} Mode {mode}: GSFC {gsfc.id} 생성 완료. 경로 탐색 시작.")
 
                 if mode == "basic":
-                    self.set_gsfc_flow_rule(gsfc)
-                    self.set_vsg_path(gsfc)
+                    self.set_gsfc_flow_rule(gsfc, mode)
+                    self.set_vsg_path(gsfc, mode)
                     self.set_satellite_path(gsfc, mode=mode)
                     # print(f"[PATH LOG] GSFC {gsfc.id}: BASIC VSG 경로 설정 완료. Path: {gsfc.basic_satellite_path}")
 
                 elif "noname" in mode:
-                    self.set_gsfc_flow_rule(gsfc)
-                    self.set_vsg_path(gsfc)
+                    self.set_gsfc_flow_rule(gsfc, mode)
+                    self.set_vsg_path(gsfc, mode)
                     self.set_satellite_path_noname(gsfc, mode)
                     print(f"[GSFC GENERATION] Time {t} Mode {mode}: GSFC {gsfc.id} 생성 완료. satellite_path: {gsfc.noname_satellite_path}, processed_path: {gsfc.noname_processed_satellite_path} 경로 탐색 시작.")
 
                 elif mode == "dd":
                     if IS_PROPOSED:
                         # proposed
-                        self.proposed_find_satellite_path(gsfc)
+                        self.proposed_find_satellite_path(gsfc, mode)
                         # print(f"[PATH LOG] GSFC {gsfc.id}: PROPOSED DD 경로 설정 완료. Path: {gsfc.dd_satellite_path}")
                     else:
                         # DD
-                        self.find_shortest_satellite_vnf_path(gsfc)  # vsg_path 없이 satellite_path 생성
+                        self.find_shortest_satellite_vnf_path(gsfc, mode)  # vsg_path 없이 satellite_path 생성
                         # print(f"[PATH LOG] GSFC {gsfc.id}: DD 경로 설정 완료. Path: {gsfc.dd_satellite_path}")
 
                 elif mode == "sd":
                     if IS_PROPOSED:
                         # proposed
-                        self.advanced_proposed_find_satellite_path(gsfc)
+                        self.advanced_proposed_find_satellite_path(gsfc, mode)
                         # print(f"[PATH LOG] GSFC {gsfc.id}: PROPOSED SD 경로 설정 완료. Path: {gsfc.sd_satellite_path}")
                     else:
                         # SD 경로 생성
-                        self.find_shortest_satellite_path_between_src_dst(gsfc)
+                        self.find_shortest_satellite_path_between_src_dst(gsfc, mode)
                         # print(f"[PATH LOG] GSFC {gsfc.id}: SD 경로 설정 완료. Path: {gsfc.sd_satellite_path}")
 
                 ## 첫 위치 설정
@@ -2392,6 +2609,14 @@ class Simulation:
 
             # 종료 시점 파악 #
             # 모든 gsfc가 success or dropped이 될 때까지 #
+            for gsfc in self.gsfc_list:
+                e2e_delay = (getattr(gsfc, f"{mode}_prop_delay_ms", float('inf')) + getattr(gsfc, f"{mode}_proc_delay_ms", float('inf'))
+                             + getattr(gsfc, f"{mode}_queue_delay_ms", float('inf')) + getattr(gsfc, f"{mode}_trans_delay_ms", float('inf')))
+
+                if e2e_delay > gsfc.tolerance_time_ms:
+                    setattr(gsfc, f"{mode}_succeed", False) # 바꾸기 필요?
+                    setattr(gsfc, f"{mode}_dropped", True)
+
             all_completed = True
             if self.gsfc_list:
                 for gsfc in self.gsfc_list:
@@ -2416,18 +2641,22 @@ class Simulation:
                     if getattr(gsfc, succeed_attr, False) or getattr(gsfc, dropped_attr, False):
                         continue
 
-                    if gsfc.sfc_type_idx == 1:
-                        continue
-                    else:
-                        remain_path = gsfc.get_remain_path(mode=mode)
-                        if len(remain_path) < 1:
-                            cur_sat_id = gsfc.noname_processed_satellite_path[-1][0]
-                            cur_sat = self.sat_list[cur_sat_id]
+                    # if gsfc.sfc_type_idx == 2: #mMTC
+                    #     continue
+                    # else:
+                    remain_path = gsfc.get_remain_path(mode=mode)
+                    if len(remain_path) < 1:
+                        processed_path = getattr(gsfc, f"{mode}_processed_satellite_path", [])
+                        if len(processed_path) < 1:
+                            print(f"[ERROR] GSFC {gsfc.id} has no processed path in noname mode.")
+                            continue
+                        cur_sat_id = processed_path[-1][0]
+                        cur_sat = self.sat_list[cur_sat_id]
 
-                            # print(f"[PATH LOG] time {t} GSFC {gsfc.id} on Node {cur_sat.id} in VSG {cur_sat.current_vsg_id}: Destination reached. Success.")
+                        # print(f"[PATH LOG] time {t} GSFC {gsfc.id} on Node {cur_sat.id} in VSG {cur_sat.current_vsg_id}: Destination reached. Success.")
 
-                            self.set_satellite_path_noname(gsfc, mode)
-                            cur_sat.add_to_transmit_queue(gsfc, mode=mode)
+                        self.set_satellite_path_noname(gsfc, mode)
+                        cur_sat.add_to_transmit_queue(gsfc, mode=mode)
 
             # TODO 3. mMTC SFC 처리 로직 별도로 필요. 매 time마다 dst_vsg에 도착했는지 확인 --(YES)-->vnf도 처리 완료? --(YES)-->succeed. --(NO)-->지상국으로 내려서 처리.
             # TODO 3. reassign을 통해 mMTC SFC가 있는 위성이 vnf 처리 가능 상태가 되면 처리하기.
@@ -2466,7 +2695,10 @@ class Simulation:
                                 processed_satellite_path = getattr(gsfc, processed_satellite_path_attr, [])
                                 remain_id = len(processed_satellite_path)
 
-                                satellite_path.insert(remain_id, [gserver_id, 'vnf2'])
+                                original_len = len(satellite_path)
+                                for i in range(remain_id, original_len - 1):
+                                    _, vnf_tag = satellite_path[i]
+                                    satellite_path[i] = [gserver_id, vnf_tag]
                             cur_sat.add_to_transmit_queue(gsfc, mode=mode)
 
                             gsfc.is_keeping = False
@@ -2566,7 +2798,7 @@ class Simulation:
                         if is_vnf:
                             vnf_id = gsfc.num_completed_vnf  # vnf 종류가 아닌, 현 gsfc에서 실행되는 vnf 순서
                             if vnf_id >= len(gsfc.vnf_sizes):
-                                print(f"[WARNING] gsfc_id: {gsfc.id}, vsg_path: {self.vsg_path[gsfc.id]} gsfc_satellite_path: {gsfc.noname_satellite_path} gsfc_processed: {gsfc.noname_processed_satellite_path}")
+                                print(f"[WARNING] gsfc_id: {gsfc.id}, vsg_path: {self.vsg_path[gsfc.id]} gsfc_satellite_path: {getattr(gsfc, f"{mode}_satellite_path", [])} gsfc_processed: {getattr(gsfc, f"{mode}_processed_satellite_path", [])}")
 
                             next_sat.add_to_process_queue(gsfc, next_function)
                         else:  # --(아니오)--> 다음 위성 transmitting queue에 추가
@@ -2637,19 +2869,20 @@ class Simulation:
                         self.reassign_vnfs_to_satellite(vsg)
 
                         affected_gsfcs = self.find_gsfc_need_reroute(vsg, lost_vnfs, mode=mode)
-                        print(f"--------{affected_gsfcs}, in gsfc_id {gsfc.id}--------")
+                        print(f"--------{affected_gsfcs}--------")
                         for gsfc in affected_gsfcs:
-                            # print(f"[REROUTE] time {t} GSFC {gsfc.id} need reroute due to VSG {vsg.id} VNF change.\n"
-                            #       f"before satellite path {getattr(gsfc, f'{mode}_satellite_path')}, processed path {getattr(gsfc, f'{mode}_processed_satellite_path')}")
+                            print(f"[REROUTE] time {t} GSFC {gsfc.id} need reroute due to VSG {vsg.id} VNF change.\n"
+                                  f"before satellite path {getattr(gsfc, f'{mode}_satellite_path')}, processed path {getattr(gsfc, f'{mode}_processed_satellite_path')}")
                             self.set_satellite_path(gsfc, mode=mode)
-                            # print(f"after satellite path {getattr(gsfc, f'{mode}_satellite_path')}, processed path {getattr(gsfc, f'{mode}_processed_satellite_path')}")
+                            print(f"after satellite path {getattr(gsfc, f'{mode}_satellite_path')}, processed path {getattr(gsfc, f'{mode}_processed_satellite_path')}")
+                            input()
                         print(f"[REASSIGN] time {t} VSG {vsg.id}, satellite with vnf {(sat.id for sat in vsg.satellites if sat.vnf_list is not [])}")
 
             self.visualized_network_constellation(t)
 
             # 결과 저장 및 그래프
             path_filename = "path_results_per_time.csv"
-            self.write_results_csv(t, path_filename, mode, IS_PROPOSED)
+            self.write_process_csv(t, path_filename, mode, IS_PROPOSED)
 
             satellite_status_filename = "satellite_status_per_time.csv"
             self.write_satellite_status_csv(t, satellite_status_filename)
@@ -2661,7 +2894,9 @@ class Simulation:
 
         success_filename = "success_results.csv"
         self.write_success_results_csv(success_filename, mode)
-        plot_each_mean_e2e(self.results_dir, sat_data_rate, gs_data_rate, mode,
-                           success_filename, out_png_filename="mean_e2e.png")
-        plot_each_mean_stack_e2e_segment(self.results_dir, sat_data_rate, gs_data_rate, mode,
-                           success_filename, out_png_filename="mean_e2e.png")
+        fail_filename = "drop_results.csv"
+        self.write_fail_results_csv(fail_filename, mode)
+        # plot_each_mean_e2e(self.results_dir, sat_data_rate, gs_data_rate, mode,
+        #                    success_filename, out_png_filename="mean_e2e.png")
+        # plot_each_mean_stack_e2e_segment(self.results_dir, sat_data_rate, gs_data_rate, mode,
+        #                    success_filename, out_png_filename="mean_e2e.png")

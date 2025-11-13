@@ -28,12 +28,17 @@ SFC_TYPE_LIST = {
     2: ['1', '2', '3', '4'], # 'mMTC'
 }
 VNF_SIZE = 1e6 # [bit]  ≈125 KB
+SFC_TOLERANCE_TIME = {
+    0: 100, # eMBB
+    1: 50,  # uRLLC
+    2: 1000, # mMTC
+}
 #100 * 8 # [bit] (100 B * 8)
 # SFC_SIZE = 5e6 # [bit]  ≈625 KB
 #512 * 8 # [bit]
 
 # simulation
-NUM_ITERATIONS = 30 #400
+NUM_ITERATIONS = 200 #400
 NUM_GSFC = 3 #33 # int(2*1024*1024/SFC_SIZE*8) #[per ms]
 TAU = 1000 # 1ms 단위로 맞추기
 
